@@ -8,7 +8,7 @@ import {
 } from '../types/portal';
 
 export const GAME_GENERATOR_URL =
-  'https://sites.google.com/edu-haifa.org.il/generator/full-page-embed';
+  'https://sites.google.com/edu-haifa.org.il/shm/full-page-embed';
 
 export const SITE_TAGS: readonly SiteTag[] = [
   'משחק תחביב',
