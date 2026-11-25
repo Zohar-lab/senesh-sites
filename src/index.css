@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Heebo", system-ui, -apple-system, sans-serif;
+  --font-display: "Rubik", "Heebo", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+/* כותרת תלת-ממדית מדורגת בסגנון MINECRAFT על רקע אורבני כהה */
+.minecraft-title {
+  font-family: "Rubik", sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #a3e635;
+  -webkit-text-stroke: 2px #020617;
+  paint-order: stroke fill;
+  text-shadow:
+    1px 1px 0 #020617,
+    2px 2px 0 #020617,
+    3px 3px 0 #15803d,
+    4px 4px 0 #15803d,
+    5px 5px 0 #020617,
+    6px 6px 0 #020617,
+    8px 8px 0 #06b6d4;
+}
+
+/* רקע בטון אורבני מודרני עם רשת נקודות ספריי עדינה */
+.bg-street-concrete {
+  background-color: #f1f5f9;
+  background-image: radial-gradient(#cbd5e1 1.35px, transparent 1.35px);
+  background-size: 20px 20px;
+}
+
+/* רקע קיר רחוב כהה עם טקסטורת ספריי עדינה */
+.bg-dark-wall {
+  background-color: #090d16;
+  background-image: radial-gradient(rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

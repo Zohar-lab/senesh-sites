@@ -1,0 +1,6 @@
+{
+  "name": "פורטל המשחקים הבית-ספרי",
+  "description": "פורטל משחקים דיגיטלי שנוצר ומנוהל על ידי תלמידי בית הספר היסודי — משחקים חינוכיים, חשיבה, ארקייד והרפתקאות.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

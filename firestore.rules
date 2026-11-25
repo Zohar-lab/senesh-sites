@@ -1,0 +1,239 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidEmailId(emailId) {
+      return emailId is string
+        && emailId.size() >= 5
+        && emailId.size() <= 120
+        && emailId.matches('^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    function isSafeDisplayName(name) {
+      return name is string
+        && name.size() >= 1
+        && name.size() <= 35
+        && !(name.matches('.*@.*'));
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string;
+    }
+
+    function isSuperAdmin() {
+      return isVerifiedUser()
+        && request.auth.token.email.lower() == '1001974053@edu-haifa.org.il';
+    }
+
+    function isAuthorizedEditor() {
+      return isSuperAdmin()
+        || (isVerifiedUser()
+            && exists(/databases/$(database)/documents/editors/$(request.auth.token.email.lower())));
+    }
+
+    // --- Validation Blueprints ---
+    function isValidGame(data) {
+      return data.keys().hasAll([
+          'title', 'creators', 'creatorNote', 'grade', 'category',
+          'description', 'gameUrl', 'imageUrl', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'title', 'creators', 'creatorNote', 'grade', 'category',
+          'description', 'gameUrl', 'imageUrl', 'status', 'tags', 'isFeatured',
+          'sheetRowNumber', 'createdAt', 'updatedAt'
+        ])
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.creators is list && data.creators.size() >= 1 && data.creators.size() <= 10
+        && isSafeDisplayName(data.creators[0])
+        && data.creatorNote is string && data.creatorNote.size() <= 1000
+        && data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 30
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 30
+        && data.description is string && data.description.size() <= 1500
+        && data.gameUrl is string && data.gameUrl.size() >= 8 && data.gameUrl.size() <= 500
+        && data.gameUrl.matches('^https?://.*')
+        && data.imageUrl is string && data.imageUrl.size() <= 500
+        && (data.imageUrl == '' || data.imageUrl.matches('^https?://.*'))
+        && data.status is string && data.status in ['מאושר', 'ממתין', 'נדחה']
+        && (!('tags' in data) || (
+          data.tags is list
+          && data.tags.size() <= 6
+          && data.tags.hasOnly(['משחק תחביב', 'חקר', 'מידע', 'חברה', 'מועצת תלמידים', 'מחשבים ורשת'])
+        ))
+        && (!('isFeatured' in data) || data.isFeatured is bool)
+        && (!('sheetRowNumber' in data) || (data.sheetRowNumber is number && data.sheetRowNumber >= 2))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFeedback(data) {
+      return data.keys().hasAll(['gameId', 'playerName', 'rating', 'comment', 'createdAt'])
+        && data.keys().hasOnly(['gameId', 'playerName', 'playerGrade', 'rating', 'comment', 'createdAt'])
+        && isValidId(data.gameId)
+        && isSafeDisplayName(data.playerName)
+        && (!('playerGrade' in data) || (data.playerGrade is string && data.playerGrade.size() <= 15))
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() >= 3 && data.comment.size() <= 350
+        && data.createdAt is timestamp;
+    }
+
+    function isValidEditor(data, editorEmail) {
+      return data.keys().hasAll(['email', 'role', 'addedBy', 'createdAt'])
+        && data.keys().hasOnly(['email', 'role', 'addedBy', 'createdAt'])
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 120
+        && data.email.lower() == editorEmail.lower()
+        && data.role is string && data.role in ['super_admin', 'editor']
+        && data.addedBy is string && data.addedBy.size() >= 3 && data.addedBy.size() <= 120
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPortalSettings(data) {
+      return data.keys().hasAll([
+          'spreadsheetId', 'title', 'gamesSheetName', 'gamesSheetId',
+          'editorsSheetName', 'editorsSheetId', 'csvUrl', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'spreadsheetId', 'title', 'gamesSheetName', 'gamesSheetId',
+          'editorsSheetName', 'editorsSheetId', 'csvUrl', 'updatedAt'
+        ])
+        && data.spreadsheetId is string && data.spreadsheetId.size() >= 10 && data.spreadsheetId.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.gamesSheetName is string && data.gamesSheetName.size() >= 1 && data.gamesSheetName.size() <= 80
+        && data.gamesSheetId is number
+        && data.editorsSheetName is string && data.editorsSheetName.size() >= 1 && data.editorsSheetName.size() <= 80
+        && data.editorsSheetId is number
+        && data.csvUrl is string && data.csvUrl.size() >= 10 && data.csvUrl.size() <= 400
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    // Startup connection check document
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+
+    // Student Google Sites catalog
+    match /games/{gameId} {
+      allow get: if isValidId(gameId) && (existing().status == 'מאושר' || isAuthorizedEditor());
+      allow list: if resource.data.status == 'מאושר' || isSuperAdmin() || isAuthorizedEditor();
+
+      // Either authorized editor creates any valid site, or student submits in 'ממתין' status (cannot self-feature)
+      allow create: if isValidId(gameId)
+        && isValidGame(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAuthorizedEditor()
+          || (
+            incoming().status == 'ממתין'
+            && (!('isFeatured' in incoming()) || incoming().isFeatured == false)
+          )
+        );
+
+      // Only Super Admin or Authorized Editors may moderate/edit/feature sites
+      allow update: if isValidId(gameId)
+        && isValidGame(incoming())
+        && isAuthorizedEditor()
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'creators', 'creatorNote', 'grade', 'category',
+          'description', 'gameUrl', 'imageUrl', 'status', 'tags', 'isFeatured',
+          'sheetRowNumber', 'updatedAt'
+        ]);
+
+      allow delete: if isValidId(gameId) && isAuthorizedEditor();
+    }
+
+    // Visitor feedbacks
+    match /feedbacks/{feedbackId} {
+      allow get: if isValidId(feedbackId);
+      allow list: if resource.data.rating >= 1 && resource.data.rating <= 5;
+
+      allow create: if isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/games/$(incoming().gameId));
+
+      allow update: if isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && isAuthorizedEditor()
+        && incoming().createdAt == existing().createdAt
+        && incoming().gameId == existing().gameId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['playerName', 'playerGrade', 'rating', 'comment']);
+
+      allow delete: if isValidId(feedbackId) && isAuthorizedEditor();
+    }
+
+    // Authorized editors list (PII isolated to Super Admin + self check)
+    match /editors/{editorEmail} {
+      allow get: if isValidEmailId(editorEmail)
+        && (isSuperAdmin() || (isVerifiedUser() && request.auth.token.email.lower() == editorEmail.lower()));
+
+      allow list: if isSuperAdmin()
+        || (isVerifiedUser() && resource.data.email.lower() == request.auth.token.email.lower());
+
+      allow create: if isValidEmailId(editorEmail)
+        && isSuperAdmin()
+        && isValidEditor(incoming(), editorEmail)
+        && incoming().createdAt == request.time;
+
+      allow update: if isValidEmailId(editorEmail)
+        && isSuperAdmin()
+        && isValidEditor(incoming(), editorEmail)
+        && incoming().createdAt == existing().createdAt
+        && incoming().email == existing().email
+        && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'addedBy']);
+
+      allow delete: if isValidEmailId(editorEmail)
+        && isSuperAdmin()
+        && editorEmail.lower() != '1001974053@edu-haifa.org.il';
+    }
+
+    // Legacy portal_settings collection (admin/editors only)
+    match /portal_settings/{settingId} {
+      allow get: if isValidId(settingId) && isAuthorizedEditor();
+      allow list: if isSuperAdmin();
+
+      allow create: if isValidId(settingId)
+        && isAuthorizedEditor()
+        && isValidPortalSettings(incoming())
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(settingId)
+        && isAuthorizedEditor()
+        && isValidPortalSettings(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'spreadsheetId', 'title', 'gamesSheetName', 'gamesSheetId',
+          'editorsSheetName', 'editorsSheetId', 'csvUrl', 'updatedAt'
+        ]);
+
+      allow delete: if isValidId(settingId) && isSuperAdmin();
+    }
+  }
+}

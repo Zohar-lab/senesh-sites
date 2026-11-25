@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "Game": {
+      "title": "Game",
+      "description": "An educational or arcade game created by students at Hannah Senesh School.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "creators": {
+          "type": "array",
+          "description": "List of student creator display names (first name and optional nickname only, no last names; 1 to 10 entries, each max 35 chars)."
+        },
+        "creatorNote": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1000
+        },
+        "grade": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 1500
+        },
+        "gameUrl": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 500,
+          "pattern": "^https?://.*"
+        },
+        "imageUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "status": {
+          "type": "string",
+          "enum": ["מאושר", "ממתין", "נדחה"]
+        },
+        "tags": {
+          "type": "array",
+          "description": "Up to 6 official portal tags assigned to the student site."
+        },
+        "isFeatured": {
+          "type": "boolean",
+          "description": "Whether this site is featured on the home page and featured section."
+        },
+        "sheetRowNumber": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "title",
+        "creators",
+        "creatorNote",
+        "grade",
+        "category",
+        "description",
+        "gameUrl",
+        "imageUrl",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GameFeedback": {
+      "title": "GameFeedback",
+      "description": "Moderated player rating and review submitted for a game.",
+      "type": "object",
+      "properties": {
+        "gameId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 35,
+          "description": "First name and optional nickname only (no last names or emails)."
+        },
+        "playerGrade": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 15
+        },
+        "rating": {
+          "type": "number"
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 350
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "gameId",
+        "playerName",
+        "rating",
+        "comment",
+        "createdAt"
+      ]
+    },
+    "AuthorizedEditor": {
+      "title": "AuthorizedEditor",
+      "description": "Authorized portal editor record managed by the Super Admin.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "editor"]
+        },
+        "addedBy": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "role", "addedBy", "createdAt"]
+    },
+    "PortalSettings": {
+      "title": "PortalSettings",
+      "description": "Shared Google Sheets sync metadata for the school portal.",
+      "type": "object",
+      "properties": {
+        "spreadsheetId": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "gamesSheetName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "gamesSheetId": {
+          "type": "number"
+        },
+        "editorsSheetName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "editorsSheetId": {
+          "type": "number"
+        },
+        "csvUrl": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 400
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "title",
+        "gamesSheetName",
+        "gamesSheetId",
+        "editorsSheetName",
+        "editorsSheetId",
+        "csvUrl",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/games/{gameId}": {
+      "schema": { "$ref": "#/entities/Game" },
+      "description": "Catalog of student-created games; public reads restricted to approved games."
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": { "$ref": "#/entities/GameFeedback" },
+      "description": "Moderated player feedback linked to existing games."
+    },
+    "/editors/{editorEmail}": {
+      "schema": { "$ref": "#/entities/AuthorizedEditor" },
+      "description": "Authorized editor emails managed exclusively by the Super Admin."
+    },
+    "/portal_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PortalSettings" },
+      "description": "Connected Google Sheets configuration for authorized admins and editors."
+    }
+  }
+}
