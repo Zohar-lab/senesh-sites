@@ -655,8 +655,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                 ניהול פורטל אתרי Google Sites ומורשים
               </h2>
               <p className="text-xs text-slate-300">
-                ניהול ארגוני ב-Firestore בלבד · סופר אדמין:{' '}
-                <span className="font-mono text-amber-300">{SUPER_ADMIN_EMAIL}</span>
+                ניהול ארגוני ב-Firestore בלבד · גישה למורשים
               </p>
             </div>
           </div>
@@ -721,7 +720,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   התחברו עם חשבון Google הארגוני לניהול הפורטל
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  התחברו באמצעות חשבון הסופר אדמין ({SUPER_ADMIN_EMAIL}) או חשבון מורשה עריכה, כדי לבדוק, לתייג, לבחור אתרים מומלצים לדף הראשי ולאשר אתרי תלמידים. לאורחים וצופים אין צורך בהתחברות.
+                  התחברו באמצעות חשבון מנהל או חשבון מורשה עריכה, כדי לבדוק, לתייג, לבחור אתרים מומלצים לדף הראשי ולאשר אתרי תלמידים. לאורחים וצופים אין צורך בהתחברות.
                 </p>
               </div>
               <div className="pt-1">
@@ -784,7 +783,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                     לחשבון {user.email} אין הרשאת עריכה ברשימת המורשים של הפורטל.
                   </div>
                   <p>
-                    בקשו מהסופר אדמין (<span className="font-mono">{SUPER_ADMIN_EMAIL}</span>) להוסיף את כתובת האימייל שלכם בלשונית &quot;רשימת מורשים לעריכה&quot;.
+                    בקשו ממנהל הפורטל להוסיף את כתובת האימייל שלכם בלשונית &quot;רשימת מורשים לעריכה&quot;.
                   </p>
                 </div>
               ) : (
@@ -1331,7 +1330,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         </form>
                       ) : (
                         <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
-                          רק הסופר אדמין (<span className="font-mono font-semibold">{SUPER_ADMIN_EMAIL}</span>) רשאי להוסיף או להסיר משתמשים מרשימת המורשים לעריכה.
+                          רק מנהל הפורטל הראשי רשאי להוסיף או להסיר משתמשים מרשימת המורשים לעריכה.
                         </div>
                       )}
 
