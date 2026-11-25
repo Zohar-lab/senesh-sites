@@ -4,11 +4,15 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  Copy,
   Database,
   Download,
   ExternalLink,
+  Eye,
+  EyeOff,
   Globe,
   Info,
+  KeyRound,
   LogOut,
   Pencil,
   Plus,
@@ -22,6 +26,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { getActiveFirebaseSecretConfig } from '../services/firebaseApp';
 import {
   addEditorToFirestore,
   checkEditorAuthorization,
@@ -100,7 +105,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 }) => {
   const csvInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'sites' | 'editors'>('sites');
+  const [activeTab, setActiveTab] = useState<'sites' | 'editors' | 'deploy'>('sites');
   const [statusFilter, setStatusFilter] = useState<'הכל' | 'ממתין' | 'מאושר' | 'נדחה'>('הכל');
   const [tagFilter, setTagFilter] = useState<TagFilter>('הכל');
   const [onlyFeatured, setOnlyFeatured] = useState<boolean>(false);
@@ -112,6 +117,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   const [isWorking, setIsWorking] = useState(false);
 
   const [newEditorEmail, setNewEditorEmail] = useState('');
+  const [showSecretJson, setShowSecretJson] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
 
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error';
@@ -194,6 +201,13 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   }, [isOpen, user?.uid]);
 
   useEffect(() => {
+    if (!isOpen) {
+      setShowSecretJson(false);
+      setCopiedSecret(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -207,6 +221,44 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isOpen, pendingConfirm, onClose]);
+
+  const activeFirebaseSecretConfig = useMemo(
+    () => (isAuthorized ? getActiveFirebaseSecretConfig() : null),
+    [isAuthorized]
+  );
+
+  const firebaseSecretJson = useMemo(() => {
+    if (!activeFirebaseSecretConfig) return '';
+    return JSON.stringify(activeFirebaseSecretConfig, null, 2);
+  }, [activeFirebaseSecretConfig]);
+
+  const maskedFirebaseSecretJson = useMemo(() => {
+    if (!activeFirebaseSecretConfig) return '';
+    const masked: Record<string, string> = {};
+    for (const [k, v] of Object.entries(activeFirebaseSecretConfig)) {
+      masked[k] = typeof v === 'string' && v.length > 6 ? `${v.slice(0, 4)}••••••••${v.slice(-3)}` : '••••••••';
+    }
+    return JSON.stringify(masked, null, 2);
+  }, [activeFirebaseSecretConfig]);
+
+  const handleCopyFirebaseSecret = async () => {
+    if (!firebaseSecretJson) return;
+    try {
+      await navigator.clipboard.writeText(firebaseSecretJson);
+      setCopiedSecret(true);
+      setStatusMessage({
+        type: 'success',
+        text: 'הגדרות FIREBASE_APPLET_CONFIG הועתקו ללוח. הדביקו אותן ב-GitHub Secrets.',
+      });
+      window.setTimeout(() => setCopiedSecret(false), 2500);
+    } catch {
+      setShowSecretJson(true);
+      setStatusMessage({
+        type: 'error',
+        text: 'לא ניתן להעתיק אוטומטית בדפדפן זה. הציגו את ההגדרה והעתיקו ידנית.',
+      });
+    }
+  };
 
   const counts = useMemo(() => {
     return {
@@ -744,18 +796,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         הגנת מידע ב-GitHub Pages + Firebase ושמירה על פרטיות התלמידים
                       </div>
                       <p>
-                        הפורטל מתארח ב-<strong>GitHub Pages</strong> (<span className="font-mono" dir="ltr">zohar-lab.github.io/SENESH-Arcade/</span>) עם הגדרות Firebase מאובטחות ב-GitHub Secrets (<span className="font-mono">FIREBASE_APPLET_CONFIG</span>) וללא קובץ סודות במאגר. שמות תלמידים נשמרים ומוצגים בפורמט <strong>שם פרטי וכינוי בלבד</strong> (ללא שמות משפחה).
+                        הפורטל מתארח ב-<strong>GitHub Pages</strong> (<span className="font-mono" dir="ltr">zohar-lab.github.io/senesh-sites/</span>) עם הגדרות Firebase מאובטחות ב-GitHub Secrets (<span className="font-mono">FIREBASE_APPLET_CONFIG</span>) וללא קובץ סודות במאגר. שמות תלמידים נשמרים ומוצגים בפורמט <strong>שם פרטי וכינוי בלבד</strong> (ללא שמות משפחה).
                       </p>
                     </div>
                   </div>
 
                   {/* טאבים ראשיים */}
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 pb-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setActiveTab('sites')}
-                        className={`min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-bold cursor-pointer transition-colors ${
+                        className={`min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                           activeTab === 'sites'
                             ? 'bg-slate-950 text-lime-300 border-slate-950'
                             : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-950'
@@ -768,7 +820,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setActiveTab('editors')}
-                        className={`min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-bold cursor-pointer transition-colors ${
+                        className={`min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                           activeTab === 'editors'
                             ? 'bg-slate-950 text-cyan-300 border-slate-950'
                             : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-950'
@@ -776,6 +828,19 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       >
                         <Users className="w-4 h-4" aria-hidden="true" />
                         <span>רשימת מורשים לעריכה ({editors.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('deploy')}
+                        className={`min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                          activeTab === 'deploy'
+                            ? 'bg-slate-950 text-amber-300 border-slate-950'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-950'
+                        }`}
+                      >
+                        <KeyRound className="w-4 h-4" aria-hidden="true" />
+                        <span>הגדרות פריסה ל-GitHub</span>
                       </button>
                     </div>
 
@@ -1308,6 +1373,107 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             </div>
                           );
                         })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* תוכן טאב הגדרות פריסה ל-GitHub */}
+                  {activeTab === 'deploy' && (
+                    <div className="space-y-5">
+                      <div className="p-5 rounded-xl border border-slate-200 bg-white space-y-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <h3 className="font-display text-base font-extrabold text-slate-950">
+                              העתקת JSON ל-GitHub Secret (<span className="font-mono" dir="ltr">FIREBASE_APPLET_CONFIG</span>)
+                            </h3>
+                            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                              כדי שגרסת האתר ב-<span className="font-mono font-semibold" dir="ltr">senesh-sites</span> תתחבר למסד הנתונים Firestore ולהתחברות Google, הדביקו אובייקט זה תחת <span className="font-mono" dir="ltr">Settings → Secrets and variables → Actions</span>.
+                            </p>
+                          </div>
+
+                          {firebaseSecretJson && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setShowSecretJson((prev) => !prev)}
+                                className="min-h-10 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-slate-50 text-slate-800 text-xs sm:text-sm font-bold hover:border-slate-950 whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                {showSecretJson ? (
+                                  <>
+                                    <EyeOff className="w-4 h-4" aria-hidden="true" />
+                                    <span>הסתרת ערכים</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-4 h-4" aria-hidden="true" />
+                                    <span>הצגת ערכים</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleCopyFirebaseSecret}
+                                className="min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-slate-950 bg-lime-400 text-slate-950 text-xs sm:text-sm font-extrabold shadow-[2px_2px_0px_#020617] hover:bg-lime-300 whitespace-nowrap shrink-0 cursor-pointer"
+                              >
+                                {copiedSecret ? (
+                                  <>
+                                    <Check className="w-4 h-4" aria-hidden="true" />
+                                    <span>הועתק ללוח</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-4 h-4" aria-hidden="true" />
+                                    <span>העתקת JSON ל-GitHub</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {firebaseSecretJson ? (
+                          <div className="space-y-2">
+                            <pre
+                              dir="ltr"
+                              className="p-4 rounded-lg bg-slate-950 text-slate-100 text-xs font-mono overflow-x-auto leading-relaxed select-all"
+                            >
+                              {showSecretJson ? firebaseSecretJson : maskedFirebaseSecretJson}
+                            </pre>
+                            <p className="text-xs text-slate-500">
+                              כפתור ההעתקה מעתיק תמיד את ה-JSON המלא והתקין, גם כשהתצוגה מוסתרת למניעת צפייה מהצד.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-lg border border-amber-300 bg-amber-50 text-amber-950 text-xs sm:text-sm space-y-2">
+                            <div className="font-bold">
+                              תצורת Firebase אינה טעונה בסביבה זו
+                            </div>
+                            <p className="leading-relaxed">
+                              פתחו את הפורטל מתוך סביבת הפיתוח ב-AI Studio כדי להעתיק מכאן בלחיצה, או העתיקו מ-Firebase Console תחת <span className="font-mono" dir="ltr">Project Settings → General → Your apps → firebaseConfig</span> והוסיפו את השדה <span className="font-mono" dir="ltr">firestoreDatabaseId</span>.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                        <h4 className="font-display text-sm sm:text-base font-extrabold text-slate-950">
+                          4 שלבים להפעלת האתר ב-GitHub Pages (מאגר <span className="font-mono" dir="ltr">senesh-sites</span>)
+                        </h4>
+                        <ol className="list-decimal list-inside space-y-2 text-xs sm:text-sm text-slate-700 leading-relaxed">
+                          <li>
+                            ב-GitHub כנסו ל-<span className="font-mono font-semibold" dir="ltr">Settings → Pages</span> ותחת <span className="font-mono" dir="ltr">Source</span> בחרו <span className="font-semibold">GitHub Actions</span>.
+                          </li>
+                          <li>
+                            כנסו ל-<span className="font-mono font-semibold" dir="ltr">Settings → Secrets and variables → Actions</span>, לחצו על <span className="font-semibold">New repository secret</span>, הזינו שם <span className="font-mono font-semibold" dir="ltr">FIREBASE_APPLET_CONFIG</span> והדביקו את ה-JSON שהועתק למעלה.
+                          </li>
+                          <li>
+                            עברו ללשונית <span className="font-mono font-semibold" dir="ltr">Actions</span>, בחרו ב-<span className="font-mono" dir="ltr">Deploy Portal to GitHub Pages</span> ולחצו על <span className="font-mono" dir="ltr">Run workflow</span> (ענף <span className="font-mono" dir="ltr">main</span>).
+                          </li>
+                          <li>
+                            ב-Firebase Console כנסו ל-<span className="font-mono font-semibold" dir="ltr">Authentication → Settings → Authorized domains</span> והוסיפו את דומיין האתר שלכם ב-GitHub Pages (למשל <span className="font-mono" dir="ltr">zohar-lab.github.io</span>).
+                          </li>
+                        </ol>
                       </div>
                     </div>
                   )}

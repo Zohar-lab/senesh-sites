@@ -79,6 +79,22 @@ if (isFirebaseConfigured) {
     : getFirestore(appInstance);
 }
 
+export function getActiveFirebaseSecretConfig(): FirebaseAppletConfig | null {
+  if (!isFirebaseConfigured) return null;
+  const config: FirebaseAppletConfig = {
+    apiKey: resolvedConfig.apiKey,
+    authDomain: resolvedConfig.authDomain,
+    projectId: resolvedConfig.projectId,
+    storageBucket: resolvedConfig.storageBucket,
+    messagingSenderId: resolvedConfig.messagingSenderId,
+    appId: resolvedConfig.appId,
+  };
+  if (resolvedConfig.firestoreDatabaseId) {
+    config.firestoreDatabaseId = resolvedConfig.firestoreDatabaseId;
+  }
+  return config;
+}
+
 export const firebaseApp = appInstance;
 export const auth = authInstance;
 export const db = dbInstance;
