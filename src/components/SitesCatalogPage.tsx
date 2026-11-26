@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowRight,
   ArrowUpDown,
   ChevronDown,
@@ -7,8 +8,11 @@ import {
   ExternalLink,
   Gamepad2,
   Globe,
+  Info,
   PlusCircle,
+  RefreshCw,
   Search,
+  ShieldCheck,
   Star,
   Tags,
   X,
@@ -31,10 +35,16 @@ import { SiteCard } from './SiteCard';
 interface SitesCatalogPageProps {
   sites: StudentSiteItem[];
   isLoading: boolean;
+  isFirebaseConfigured?: boolean;
+  firebaseConfigError?: string | null;
+  firestoreLoadError?: string | null;
+  usingDemoFallback?: boolean;
   feedbackBySite: Record<string, SiteFeedback[]>;
   onOpenSite: (site: StudentSiteItem) => void;
   onBackHome: () => void;
   onOpenSubmit: () => void;
+  onRetryLoad?: () => void;
+  onOpenAdmin?: () => void;
 }
 
 const GRADES: GradeFilter[] = ['כל השכבות', "א'-ב'", "ג'-ד'", "ה'-ו'"];
@@ -54,10 +64,16 @@ const TAG_ACTIVE_STYLES: Record<TagFilter, string> = {
 export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
   sites,
   isLoading,
+  isFirebaseConfigured = true,
+  firebaseConfigError = null,
+  firestoreLoadError = null,
+  usingDemoFallback = false,
   feedbackBySite,
   onOpenSite,
   onBackHome,
   onOpenSubmit,
+  onRetryLoad,
+  onOpenAdmin,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<TagFilter>('הכל');
@@ -222,6 +238,74 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
       </section>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+        {isLoading && (
+          <div
+            aria-live="polite"
+            className="flex items-center gap-2.5 px-4 py-3 rounded-xl border-2 border-slate-950 bg-white text-slate-800 text-sm font-bold shadow-[3px_3px_0px_#06b6d4]"
+          >
+            <RefreshCw className="w-4 h-4 animate-spin text-blue-700 shrink-0" aria-hidden="true" />
+            <span>טוען אתרי תלמידים ממסד הנתונים...</span>
+          </div>
+        )}
+
+        {!isLoading && firestoreLoadError ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-rose-50 text-rose-950 border-2 border-rose-500 shadow-[4px_4px_0px_#e11d48] text-sm font-medium"
+          >
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" aria-hidden="true" />
+              <span>{firestoreLoadError}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {onRetryLoad && (
+                <button
+                  type="button"
+                  onClick={onRetryLoad}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-slate-950 bg-white text-slate-950 text-xs font-extrabold hover:bg-slate-100 whitespace-nowrap cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>ניסיון טעינה מחדש</span>
+                </button>
+              )}
+              {onOpenAdmin && (
+                <button
+                  type="button"
+                  onClick={onOpenAdmin}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-slate-950 bg-lime-400 text-slate-950 text-xs font-extrabold hover:bg-lime-300 whitespace-nowrap cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>פתיחת מסוף הניהול</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : !isLoading && usingDemoFallback ? (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-300 text-slate-950 border-2 border-slate-950 shadow-[4px_4px_0px_#06b6d4] text-sm font-medium"
+          >
+            <div className="flex items-center gap-2.5">
+              <Info className="w-4 h-4 text-slate-950 shrink-0" aria-hidden="true" />
+              <span>
+                {!isFirebaseConfigured && firebaseConfigError
+                  ? 'תצורת Firebase חסרה בסביבה זו — מוצגים אתרי פתיחה לדוגמה במקום אתרי התלמידים השמורים.'
+                  : 'מוצגים כעת אתרי פתיחה לדוגמה. התחברו במסוף הניהול כדי לאשר אתרי תלמידים חדשים.'}
+              </span>
+            </div>
+            {onOpenAdmin && (
+              <button
+                type="button"
+                onClick={onOpenAdmin}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-slate-950 bg-lime-400 text-slate-950 text-xs font-extrabold hover:bg-lime-300 whitespace-nowrap cursor-pointer shrink-0"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>פתיחת מסוף הניהול</span>
+              </button>
+            )}
+          </div>
+        ) : null}
+
         {/* 1. חדשים: 6 אתרים */}
         <section aria-labelledby="newest-sites-heading" className="space-y-5">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-slate-950 pb-3">

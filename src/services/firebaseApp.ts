@@ -31,21 +31,45 @@ function extractLocalConfig(): FirebaseAppletConfig {
   return firstModule as FirebaseAppletConfig;
 }
 
+function cleanConfigValue(raw?: string): string {
+  if (!raw) return '';
+  let val = raw.trim();
+  if (val.endsWith(',')) {
+    val = val.slice(0, -1).trim();
+  }
+  if (
+    (val.startsWith('"') && val.endsWith('"')) ||
+    (val.startsWith("'") && val.endsWith("'"))
+  ) {
+    val = val.slice(1, -1).trim();
+  }
+  return val;
+}
+
 const localConfig = extractLocalConfig();
 
 const resolvedConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localConfig.apiKey || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || localConfig.authDomain || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || localConfig.projectId || '',
+  apiKey:
+    cleanConfigValue(localConfig.apiKey) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_API_KEY),
+  authDomain:
+    cleanConfigValue(localConfig.authDomain) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN),
+  projectId:
+    cleanConfigValue(localConfig.projectId) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_PROJECT_ID),
   storageBucket:
-    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || localConfig.storageBucket || '',
+    cleanConfigValue(localConfig.storageBucket) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET),
   messagingSenderId:
-    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ||
-    localConfig.messagingSenderId ||
-    '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || localConfig.appId || '',
+    cleanConfigValue(localConfig.messagingSenderId) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID),
+  appId:
+    cleanConfigValue(localConfig.appId) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_APP_ID),
   firestoreDatabaseId:
-    import.meta.env.VITE_FIREBASE_DATABASE_ID || localConfig.firestoreDatabaseId || '',
+    cleanConfigValue(localConfig.firestoreDatabaseId) ||
+    cleanConfigValue(import.meta.env.VITE_FIREBASE_DATABASE_ID),
 };
 
 export const isFirebaseConfigured = Boolean(

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
+  AlertTriangle,
   ArrowLeft,
   ExternalLink,
   Gamepad2,
@@ -8,6 +9,7 @@ import {
   Laptop,
   LayoutGrid,
   PlusCircle,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Star,
@@ -38,11 +40,36 @@ function resolvePageFromHash(): PortalPage {
   return 'home';
 }
 
+function formatFirestoreLoadError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || '');
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw) as { error?: string };
+    if (parsed?.error) detail = parsed.error;
+  } catch {
+    // שימוש בהודעה המקורית אם אינה JSON
+  }
+
+  const lower = detail.toLowerCase();
+  if (lower.includes('quota exceeded')) {
+    return 'מכסת הקריאות היומית של Firestore הסתיימה להיום ותתאפס מחר.';
+  }
+  if (lower.includes('permission') || lower.includes('insufficient')) {
+    return 'חסימת הרשאה בקריאה מ-Firestore. בדקו את כללי האבטחה או את אישור הדומיין.';
+  }
+  if (lower.includes('offline') || lower.includes('unavailable') || lower.includes('network')) {
+    return 'לא הצלחנו להתחבר למסד הנתונים ב-Firestore. בדקו את החיבור לרשת ונסו שוב.';
+  }
+  return 'טעינת אתרי התלמידים מ-Firestore נכשלה זמנית. מוצגים בינתיים אתרי פתיחה לדוגמה.';
+}
+
 export default function App() {
   const [activePage, setActivePage] = useState<PortalPage>(() => resolvePageFromHash());
 
   const [firestoreSites, setFirestoreSites] = useState<StudentSiteItem[]>([]);
   const [hasLoadedFirestore, setHasLoadedFirestore] = useState<boolean>(false);
+  const [firestoreLoadError, setFirestoreLoadError] = useState<string | null>(null);
+  const [subscriptionNonce, setSubscriptionNonce] = useState<number>(0);
   const [firestoreFeedbacks, setFirestoreFeedbacks] = useState<Record<string, SiteFeedback[]>>({});
   const [localDemoFeedbacks, setLocalDemoFeedbacks] = useState<Record<string, SiteFeedback[]>>(
     () => INITIAL_DEMO_FEEDBACK
@@ -95,16 +122,21 @@ export default function App() {
   useEffect(() => {
     if (!isAuthReady) return;
     if (!isFirebaseConfigured) {
+      setFirestoreLoadError(null);
       setHasLoadedFirestore(true);
       return;
     }
 
+    setFirestoreLoadError(null);
+
     const unsubSites = subscribeApprovedSites(
       (loaded) => {
         setFirestoreSites(loaded);
+        setFirestoreLoadError(null);
         setHasLoadedFirestore(true);
       },
-      () => {
+      (err) => {
+        setFirestoreLoadError(formatFirestoreLoadError(err));
         setHasLoadedFirestore(true);
       }
     );
@@ -122,7 +154,14 @@ export default function App() {
       unsubSites();
       unsubFeedbacks();
     };
-  }, [isAuthReady]);
+  }, [isAuthReady, subscriptionNonce]);
+
+  const handleRetryFirestoreLoad = () => {
+    if (!isFirebaseConfigured) return;
+    setHasLoadedFirestore(false);
+    setFirestoreLoadError(null);
+    setSubscriptionNonce((prev) => prev + 1);
+  };
 
   const handleGoogleSignIn = async () => {
     setIsSigningIn(true);
@@ -281,10 +320,16 @@ export default function App() {
           <SitesCatalogPage
             sites={sites}
             isLoading={isLoading}
+            isFirebaseConfigured={isFirebaseConfigured}
+            firebaseConfigError={firebaseConfigError}
+            firestoreLoadError={firestoreLoadError}
+            usingDemoFallback={usingDemoFallback}
             feedbackBySite={feedbackBySite}
             onOpenSite={setActiveSite}
             onBackHome={() => navigateTo('home')}
             onOpenSubmit={() => setIsSubmitOpen(true)}
+            onRetryLoad={handleRetryFirestoreLoad}
+            onOpenAdmin={() => setIsAdminOpen(true)}
           />
         ) : (
           <>
@@ -429,7 +474,35 @@ export default function App() {
                   </div>
                 </div>
 
-                {usingDemoFallback && (
+                {firestoreLoadError ? (
+                  <div
+                    role="alert"
+                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-rose-50 text-rose-950 border-2 border-rose-500 shadow-[4px_4px_0px_#e11d48] text-sm font-medium"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" aria-hidden="true" />
+                      <span>{firestoreLoadError}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleRetryFirestoreLoad}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-slate-950 bg-white text-slate-950 text-xs font-extrabold hover:bg-slate-100 whitespace-nowrap cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>ניסיון טעינה מחדש</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsAdminOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-slate-950 bg-lime-400 text-slate-950 text-xs font-extrabold hover:bg-lime-300 whitespace-nowrap cursor-pointer"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>פתיחת מסוף הניהול</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : usingDemoFallback && (
                   <div
                     role="status"
                     className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-400 text-slate-950 border-2 border-white shadow-[4px_4px_0px_#06b6d4] text-sm font-medium"
@@ -438,7 +511,7 @@ export default function App() {
                       <Info className="w-4 h-4 text-slate-950 shrink-0" aria-hidden="true" />
                       <span>
                         {!isFirebaseConfigured && firebaseConfigError
-                          ? firebaseConfigError
+                          ? 'תצורת Firebase חסרה בסביבה זו — מוצגים אתרי פתיחה לדוגמה במקום אתרי התלמידים השמורים.'
                           : 'מוצגים כעת אתרי פתיחה לדוגמה. התחברו במסוף הניהול כדי לאשר אתרי Google Sites שהגישו תלמידים או לייבא קובץ CSV.'}
                       </span>
                     </div>
@@ -475,6 +548,11 @@ export default function App() {
                     <p className="text-xs sm:text-sm font-semibold text-slate-600">
                       אתרי ה-Google Sites המומלצים של תלמידי חנה סנש
                     </p>
+                    {isLoading && (
+                      <p aria-live="polite" className="text-xs font-bold text-blue-700 mt-1">
+                        טוען אתרי תלמידים ממסד הנתונים...
+                      </p>
+                    )}
                   </div>
                 </div>
 
