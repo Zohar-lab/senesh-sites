@@ -10,7 +10,7 @@ export type TagFilter = 'הכל' | SiteTag;
 
 export type SiteSortMode = 'tag-order' | 'newest' | 'featured' | 'title-az';
 
-export type PortalPage = 'home' | 'sites';
+export type PortalPage = 'home' | 'sites' | 'generator';
 
 export type GradeFilter = 'כל השכבות' | "א'-ב'" | "ג'-ד'" | "ה'-ו'";
 
@@ -70,4 +70,48 @@ export interface AuthorizedEditor {
   role: EditorRole;
   addedBy: string;
   addedAt: string;
+}
+
+export type GameSimulatorTab = 'menu' | 'tutorial' | 'pause';
+
+export interface GamePromptWizardState {
+  currentStep: number;
+  simulatorTab: GameSimulatorTab;
+  gameName: string;
+  gameSummary: string;
+  isRealWorldBased: 'yes' | 'no';
+  realWorldGame: string;
+  digitalTwist: string;
+  dimension: '2D' | '3D';
+  cameraView: 'מבט מלמעלה' | 'מבט מהצד' | 'דרך עיני השחקן';
+  winCondition: string;
+  conflictObstacle: string;
+  loseCondition: string;
+  easyLevel: string;
+  mediumLevel: string;
+  hardLevel: string;
+  artStyle: 'מצויר וצבעוני' | 'פיקסל-ארט (רטרו)' | 'חלל וניאון זוהר' | 'עולם הטבע';
+  characterAndBg: string;
+  controls: string;
+  tutorialText: string;
+}
+
+export type PromptProductionStatus = 'ממתין' | 'הופק';
+
+export interface SavedGamePromptItem {
+  id: string;
+  ownerUid?: string;
+  ownerEmail?: string;
+  promptName: string;
+  gameName: string;
+  creatorFirstName: string;
+  className: string;
+  promptText: string;
+  productionStatus: PromptProductionStatus;
+  createdSiteUrl: string;
+  isManualEdited?: boolean;
+  wizardState?: GamePromptWizardState;
+  createdAt: string;
+  updatedAt: string;
+  storageScope?: 'cloud' | 'local';
 }

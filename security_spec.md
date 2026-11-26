@@ -7,6 +7,7 @@
 4. Player feedback (`create` on `/feedbacks/{feedbackId}`) MUST reference an existing game in `/games/$(incoming().gameId)` (`exists()`), enforce `rating` integer/number between 1 and 5, enforce length limits (`playerName` 1..35 without `@`, `comment` 3..350), and bind `createdAt == request.time`.
 5. `/editors/{editorEmail}` contains email PII and RBAC roles. Only the Super Admin (`email_verified == true` and `email.lower() == '1001974053@edu-haifa.org.il'`) may create, update, or delete editors, or list the full collection. An authenticated user may read only their own editor record to verify their role.
 6. `/portal_settings/{settingId}` is accessible only to verified Super Admin and Authorized Editors.
+7. `/game_prompts/{promptId}` documents bind `ownerUid == request.auth.uid` and `ownerEmail == request.auth.token.email.lower()` on creation (`ownerUid`, `ownerEmail`, `createdAt` immutable on update). Only the prompt owner or an Authorized Editor / Super Admin may read, list, update, or delete a prompt. `productionStatus` is restricted to `['ממתין', 'הופק']` and `createdSiteUrl` must be empty or `^https?://.*`.
 
 ## 2. "Dirty Dozen" Attack Payloads (Expected: PERMISSION_DENIED)
 1. Public student attempts `create` on `/games/g1` with `"status": "מאושר"` or `"isFeatured": true` (bypass moderation / self-featuring).
@@ -19,5 +20,5 @@
 8. Anonymous visitor attempts `get` or `list` on `/editors` (PII scraping).
 9. Anonymous visitor attempts `list` on `/games` without `status == 'מאושר'` constraint (pending site scraping).
 10. Player attempts `create` on `/feedbacks/f1` with `gameId: "non_existent_game"` (orphaned record).
-11. Player attempts `create` on `/feedbacks/f1` with `rating: 99` or `comment` exceeding 350 chars (boundary violation).
-12. Authorized Editor attempts `update` on `/games/g1` altering `createdAt` (immutable field tampering).
+11. Student A attempts `get`, `list`, `update`, or `delete` on Student B's `/game_prompts/{promptId}` document or tries to spoof `ownerUid` on create (IDOR / PII leak).
+12. Student attempts `update` on `/game_prompts/{promptId}` altering `ownerUid`, `ownerEmail`, `createdAt`, or setting `createdSiteUrl` to `javascript:alert(1)`.

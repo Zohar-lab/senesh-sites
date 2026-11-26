@@ -17,11 +17,14 @@ import {
 import { DEMO_SITES } from '../data/mockSites';
 import {
   AuthorizedEditor,
+  GamePromptWizardState,
+  PromptProductionStatus,
   SiteFeedback,
   SiteStatus,
   SiteTag,
   StudentSiteItem,
 } from '../types/portal';
+import { SavedGamePromptItem } from '../types/portal';
 import {
   inspectGoogleSiteUrl,
   normalizeHttpUrl,
@@ -691,3 +694,306 @@ export async function removeEditorFromFirestore(editorEmail: string): Promise<vo
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
+
+// =====================================================================
+// ספריית הפרומפטים של התלמידים (/game_prompts)
+// =====================================================================
+
+function sanitizeWizardStateForFirestore(
+  raw?: Partial<GamePromptWizardState>
+): GamePromptWizardState | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+
+  const stepNum = Number(raw.currentStep);
+  const currentStep =
+    Number.isFinite(stepNum) && stepNum >= 1 && stepNum <= 7 ? Math.round(stepNum) : 1;
+
+  const simulatorTab =
+    raw.simulatorTab === 'tutorial' || raw.simulatorTab === 'pause' ? raw.simulatorTab : 'menu';
+  const isRealWorldBased = raw.isRealWorldBased === 'yes' ? 'yes' : 'no';
+  const dimension = raw.dimension === '3D' ? '3D' : '2D';
+  const cameraView =
+    raw.cameraView === 'מבט מלמעלה' || raw.cameraView === 'דרך עיני השחקן'
+      ? raw.cameraView
+      : 'מבט מהצד';
+  const artStyle =
+    raw.artStyle === 'פיקסל-ארט (רטרו)' ||
+    raw.artStyle === 'חלל וניאון זוהר' ||
+    raw.artStyle === 'עולם הטבע'
+      ? raw.artStyle
+      : 'מצויר וצבעוני';
+
+  return {
+    currentStep,
+    simulatorTab,
+    gameName: String(raw.gameName || '').slice(0, 140),
+    gameSummary: String(raw.gameSummary || '').slice(0, 1000),
+    isRealWorldBased,
+    realWorldGame: String(raw.realWorldGame || '').slice(0, 200),
+    digitalTwist: String(raw.digitalTwist || '').slice(0, 400),
+    dimension,
+    cameraView,
+    winCondition: String(raw.winCondition || '').slice(0, 400),
+    conflictObstacle: String(raw.conflictObstacle || '').slice(0, 400),
+    loseCondition: String(raw.loseCondition || '').slice(0, 400),
+    easyLevel: String(raw.easyLevel || '').slice(0, 300),
+    mediumLevel: String(raw.mediumLevel || '').slice(0, 300),
+    hardLevel: String(raw.hardLevel || '').slice(0, 300),
+    artStyle,
+    characterAndBg: String(raw.characterAndBg || '').slice(0, 800),
+    controls: String(raw.controls || '').slice(0, 300),
+    tutorialText: String(raw.tutorialText || '').slice(0, 800),
+  };
+}
+
+export interface SaveGamePromptInput {
+  promptName: string;
+  gameName: string;
+  creatorFirstName: string;
+  className: string;
+  promptText: string;
+  productionStatus: PromptProductionStatus;
+  createdSiteUrl: string;
+  isManualEdited?: boolean;
+  wizardState?: GamePromptWizardState;
+}
+
+function sanitizeGamePromptPayload(input: SaveGamePromptInput): {
+  creatorFirstName: string;
+  className: string;
+  promptName: string;
+  gameName: string;
+  promptText: string;
+  productionStatus: PromptProductionStatus;
+  createdSiteUrl: string;
+  isManualEdited: boolean;
+  wizardState?: GamePromptWizardState;
+} {
+  const promptText = (input.promptText || '').trim().slice(0, 12000);
+  if (!promptText) {
+    throw new Error('תוכן הפרומפט אינו יכול להיות ריק.');
+  }
+
+  const promptName = (input.promptName || input.gameName || 'פרומפט משחק')
+    .trim()
+    .slice(0, 140);
+  const gameName = (input.gameName || promptName || 'משחק חדש').trim().slice(0, 120);
+  const creatorFirstName =
+    sanitizeStudentDisplayName(input.creatorFirstName || '').slice(0, 35) || 'תלמיד';
+  const className = (input.className || 'כללי').trim().slice(0, 20) || 'כללי';
+  const productionStatus: PromptProductionStatus =
+    input.productionStatus === 'הופק' ? 'הופק' : 'ממתין';
+
+  const rawSiteUrl = (input.createdSiteUrl || '').trim();
+  let createdSiteUrl = '';
+  if (rawSiteUrl) {
+    const normalized = normalizeHttpUrl(rawSiteUrl).slice(0, 500);
+    if (!normalized) {
+      throw new Error('הקישור לאתר שנוצר אינו תקין. ודאו שהוא מתחילה ב-https://.');
+    }
+    createdSiteUrl = normalized;
+  }
+
+  return {
+    creatorFirstName,
+    className,
+    promptName: promptName || 'פרומפט משחק',
+    gameName: gameName || 'משחק חדש',
+    promptText,
+    productionStatus,
+    createdSiteUrl,
+    isManualEdited: Boolean(input.isManualEdited),
+    wizardState: sanitizeWizardStateForFirestore(input.wizardState),
+  };
+}
+
+function docToGamePromptItem(
+  id: string,
+  data: Record<string, unknown>
+): SavedGamePromptItem & { _sortMs: number } {
+  const createdAt = timestampToIso(data.createdAt);
+  const updatedAt = timestampToIso(data.updatedAt || data.createdAt);
+  const status: PromptProductionStatus = data.productionStatus === 'הופק' ? 'הופק' : 'ממתין';
+
+  return {
+    id,
+    ownerUid: typeof data.ownerUid === 'string' ? data.ownerUid : undefined,
+    ownerEmail: typeof data.ownerEmail === 'string' ? data.ownerEmail : undefined,
+    promptName: typeof data.promptName === 'string' ? data.promptName : 'פרומפט ללא שם',
+    gameName: typeof data.gameName === 'string' ? data.gameName : 'משחק חדש',
+    creatorFirstName:
+      typeof data.creatorFirstName === 'string' ? data.creatorFirstName : 'תלמיד',
+    className: typeof data.className === 'string' ? data.className : 'כללי',
+    promptText: typeof data.promptText === 'string' ? data.promptText : '',
+    productionStatus: status,
+    createdSiteUrl: typeof data.createdSiteUrl === 'string' ? data.createdSiteUrl : '',
+    isManualEdited: Boolean(data.isManualEdited),
+    wizardState:
+      data.wizardState && typeof data.wizardState === 'object'
+        ? sanitizeWizardStateForFirestore(data.wizardState as Partial<GamePromptWizardState>)
+        : undefined,
+    createdAt,
+    updatedAt,
+    storageScope: 'cloud',
+    _sortMs: Date.parse(updatedAt) || Date.parse(createdAt) || 0,
+  };
+}
+
+export function subscribeUserPrompts(
+  ownerUid: string,
+  onData: (items: SavedGamePromptItem[]) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  if (!db || !ownerUid) {
+    onData([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'game_prompts'), where('ownerUid', '==', ownerUid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs
+        .map((d) => docToGamePromptItem(d.id, d.data() as Record<string, unknown>))
+        .sort((a, b) => b._sortMs - a._sortMs)
+        .map(({ _sortMs: _ignored, ...item }) => item);
+      onData(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'game_prompts');
+      } catch (wrapped) {
+        onError?.(wrapped);
+      }
+    }
+  );
+}
+
+export function subscribeAllPromptsForAdmin(
+  onData: (items: SavedGamePromptItem[]) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  if (!db) {
+    onData([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    collection(db, 'game_prompts'),
+    (snapshot) => {
+      const items = snapshot.docs
+        .map((d) => docToGamePromptItem(d.id, d.data() as Record<string, unknown>))
+        .sort((a, b) => b._sortMs - a._sortMs)
+        .map(({ _sortMs: _ignored, ...item }) => item);
+      onData(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'game_prompts');
+      } catch (wrapped) {
+        onError?.(wrapped);
+      }
+    }
+  );
+}
+
+export async function fetchAllPromptsForAdmin(): Promise<SavedGamePromptItem[]> {
+  try {
+    const snap = await getDocs(collection(requireDb(), 'game_prompts'));
+    return snap.docs
+      .map((d) => docToGamePromptItem(d.id, d.data() as Record<string, unknown>))
+      .sort((a, b) => b._sortMs - a._sortMs)
+      .map(({ _sortMs: _ignored, ...item }) => item);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'game_prompts');
+  }
+}
+
+export async function createGamePromptInFirestore(
+  ownerUid: string,
+  ownerEmail: string,
+  input: SaveGamePromptInput
+): Promise<string> {
+  const cleanUid = (ownerUid || '').trim().slice(0, 128);
+  const cleanEmail = (ownerEmail || '').trim().toLowerCase().slice(0, 120);
+  if (!cleanUid || !cleanEmail) {
+    throw new Error('נדרשת התחברות עם חשבון Google מאומת כדי לשמור בענן.');
+  }
+
+  const sanitized = sanitizeGamePromptPayload(input);
+  const docId = generateSafeDocId('prompt');
+  const path = `game_prompts/${docId}`;
+
+  const docData: Record<string, unknown> = {
+    ownerUid: cleanUid,
+    ownerEmail: cleanEmail,
+    creatorFirstName: sanitized.creatorFirstName,
+    className: sanitized.className,
+    promptName: sanitized.promptName,
+    gameName: sanitized.gameName,
+    promptText: sanitized.promptText,
+    productionStatus: sanitized.productionStatus,
+    createdSiteUrl: sanitized.createdSiteUrl,
+    isManualEdited: sanitized.isManualEdited,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (sanitized.wizardState) {
+    docData.wizardState = sanitized.wizardState;
+  }
+
+  try {
+    await setDoc(doc(requireDb(), 'game_prompts', docId), docData);
+    return docId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateGamePromptInFirestore(
+  promptId: string,
+  input: SaveGamePromptInput
+): Promise<void> {
+  if (!VALID_ID_REGEX.test(promptId)) {
+    throw new Error('מזהה פרומפט לא תקין לעדכון.');
+  }
+
+  const sanitized = sanitizeGamePromptPayload(input);
+  const path = `game_prompts/${promptId}`;
+
+  const updateData: Record<string, unknown> = {
+    creatorFirstName: sanitized.creatorFirstName,
+    className: sanitized.className,
+    promptName: sanitized.promptName,
+    gameName: sanitized.gameName,
+    promptText: sanitized.promptText,
+    productionStatus: sanitized.productionStatus,
+    createdSiteUrl: sanitized.createdSiteUrl,
+    isManualEdited: sanitized.isManualEdited,
+    updatedAt: serverTimestamp(),
+  };
+
+  if (sanitized.wizardState) {
+    updateData.wizardState = sanitized.wizardState;
+  }
+
+  try {
+    await updateDoc(doc(requireDb(), 'game_prompts', promptId), updateData);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteGamePromptInFirestore(promptId: string): Promise<void> {
+  if (!VALID_ID_REGEX.test(promptId)) {
+    throw new Error('מזהה פרומפט לא תקין למחיקה.');
+  }
+  const path = `game_prompts/${promptId}`;
+  try {
+    await deleteDoc(doc(requireDb(), 'game_prompts', promptId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+

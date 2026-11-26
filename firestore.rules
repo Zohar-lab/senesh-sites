@@ -128,6 +128,63 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidWizardStateMap(ws) {
+      return ws is map
+        && ws.keys().hasOnly([
+          'currentStep', 'simulatorTab', 'gameName', 'gameSummary',
+          'isRealWorldBased', 'realWorldGame', 'digitalTwist',
+          'dimension', 'cameraView', 'winCondition', 'conflictObstacle',
+          'loseCondition', 'easyLevel', 'mediumLevel', 'hardLevel',
+          'artStyle', 'characterAndBg', 'controls', 'tutorialText'
+        ])
+        && (!('currentStep' in ws) || (ws.currentStep is number && ws.currentStep >= 1 && ws.currentStep <= 7))
+        && (!('simulatorTab' in ws) || (ws.simulatorTab is string && ws.simulatorTab.size() <= 20))
+        && (!('gameName' in ws) || (ws.gameName is string && ws.gameName.size() <= 140))
+        && (!('gameSummary' in ws) || (ws.gameSummary is string && ws.gameSummary.size() <= 1000))
+        && (!('isRealWorldBased' in ws) || (ws.isRealWorldBased is string && ws.isRealWorldBased.size() <= 10))
+        && (!('realWorldGame' in ws) || (ws.realWorldGame is string && ws.realWorldGame.size() <= 200))
+        && (!('digitalTwist' in ws) || (ws.digitalTwist is string && ws.digitalTwist.size() <= 400))
+        && (!('dimension' in ws) || (ws.dimension is string && ws.dimension.size() <= 10))
+        && (!('cameraView' in ws) || (ws.cameraView is string && ws.cameraView.size() <= 40))
+        && (!('winCondition' in ws) || (ws.winCondition is string && ws.winCondition.size() <= 400))
+        && (!('conflictObstacle' in ws) || (ws.conflictObstacle is string && ws.conflictObstacle.size() <= 400))
+        && (!('loseCondition' in ws) || (ws.loseCondition is string && ws.loseCondition.size() <= 400))
+        && (!('easyLevel' in ws) || (ws.easyLevel is string && ws.easyLevel.size() <= 300))
+        && (!('mediumLevel' in ws) || (ws.mediumLevel is string && ws.mediumLevel.size() <= 300))
+        && (!('hardLevel' in ws) || (ws.hardLevel is string && ws.hardLevel.size() <= 300))
+        && (!('artStyle' in ws) || (ws.artStyle is string && ws.artStyle.size() <= 60))
+        && (!('characterAndBg' in ws) || (ws.characterAndBg is string && ws.characterAndBg.size() <= 800))
+        && (!('controls' in ws) || (ws.controls is string && ws.controls.size() <= 300))
+        && (!('tutorialText' in ws) || (ws.tutorialText is string && ws.tutorialText.size() <= 800));
+    }
+
+    function isValidGamePrompt(data) {
+      return data.keys().hasAll([
+          'ownerUid', 'ownerEmail', 'creatorFirstName', 'className',
+          'promptName', 'gameName', 'promptText', 'productionStatus',
+          'createdSiteUrl', 'isManualEdited', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'ownerEmail', 'creatorFirstName', 'className',
+          'promptName', 'gameName', 'promptText', 'productionStatus',
+          'createdSiteUrl', 'isManualEdited', 'wizardState', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.ownerEmail is string && data.ownerEmail.size() >= 5 && data.ownerEmail.size() <= 120
+        && isSafeDisplayName(data.creatorFirstName)
+        && data.className is string && data.className.size() >= 1 && data.className.size() <= 20
+        && data.promptName is string && data.promptName.size() >= 1 && data.promptName.size() <= 140
+        && data.gameName is string && data.gameName.size() >= 1 && data.gameName.size() <= 120
+        && data.promptText is string && data.promptText.size() >= 1 && data.promptText.size() <= 12000
+        && data.productionStatus is string && data.productionStatus in ['ממתין', 'הופק']
+        && data.createdSiteUrl is string && data.createdSiteUrl.size() <= 500
+        && (data.createdSiteUrl == '' || data.createdSiteUrl.matches('^https?://.*'))
+        && data.isManualEdited is bool
+        && (!('wizardState' in data) || isValidWizardStateMap(data.wizardState))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // --- Collection Rules ---
 
     // Startup connection check document
@@ -234,6 +291,40 @@ service cloud.firestore {
         ]);
 
       allow delete: if isValidId(settingId) && isSuperAdmin();
+    }
+
+    // Student Game Prompt Generator library
+    match /game_prompts/{promptId} {
+      allow get: if isValidId(promptId)
+        && ((isVerifiedUser() && existing().ownerUid == request.auth.uid) || isAuthorizedEditor());
+
+      allow list: if (isVerifiedUser() && resource.data.ownerUid == request.auth.uid)
+        || isSuperAdmin()
+        || isAuthorizedEditor();
+
+      allow create: if isVerifiedUser()
+        && isValidId(promptId)
+        && isValidGamePrompt(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().ownerEmail.lower() == request.auth.token.email.lower()
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(promptId)
+        && isValidGamePrompt(incoming())
+        && ((isVerifiedUser() && existing().ownerUid == request.auth.uid) || isAuthorizedEditor())
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().ownerEmail == existing().ownerEmail
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'creatorFirstName', 'className', 'promptName', 'gameName',
+          'promptText', 'productionStatus', 'createdSiteUrl',
+          'isManualEdited', 'wizardState', 'updatedAt'
+        ]);
+
+      allow delete: if isValidId(promptId)
+        && ((isVerifiedUser() && existing().ownerUid == request.auth.uid) || isAuthorizedEditor());
     }
   }
 }

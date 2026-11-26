@@ -203,6 +203,86 @@
         "csvUrl",
         "updatedAt"
       ]
+    },
+    "GamePrompt": {
+      "title": "GamePrompt",
+      "description": "Game design prompt created or imported by a student in the integrated Game Prompt Generator.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ownerEmail": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120
+        },
+        "creatorFirstName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 35,
+          "description": "First name and optional nickname only (no last names or emails)."
+        },
+        "className": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "promptName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "gameName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "promptText": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000
+        },
+        "productionStatus": {
+          "type": "string",
+          "enum": ["ממתין", "הופק"]
+        },
+        "createdSiteUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "isManualEdited": {
+          "type": "boolean"
+        },
+        "wizardState": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerUid",
+        "ownerEmail",
+        "creatorFirstName",
+        "className",
+        "promptName",
+        "gameName",
+        "promptText",
+        "productionStatus",
+        "createdSiteUrl",
+        "isManualEdited",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -221,6 +301,10 @@
     "/portal_settings/{settingId}": {
       "schema": { "$ref": "#/entities/PortalSettings" },
       "description": "Connected Google Sheets configuration for authorized admins and editors."
+    },
+    "/game_prompts/{promptId}": {
+      "schema": { "$ref": "#/entities/GamePrompt" },
+      "description": "Student game prompts saved from the integrated generator; readable/editable by the owner or authorized school admins/editors."
     }
   }
 }

@@ -3,7 +3,6 @@ import { User } from 'firebase/auth';
 import {
   AlertTriangle,
   ArrowLeft,
-  ExternalLink,
   Gamepad2,
   Info,
   Laptop,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import heroShowcaseImg from './assets/images/hero_sites_showcase_1795618553325.jpg';
 import { AdminConsoleModal } from './components/AdminConsoleModal';
+import { GamePromptGeneratorPage } from './components/GamePromptGeneratorPage';
 import { SiteCard } from './components/SiteCard';
 import { SitesCatalogPage } from './components/SitesCatalogPage';
 import { SiteShowcaseModal } from './components/SiteShowcaseModal';
@@ -29,13 +29,16 @@ import {
 } from './services/firestorePortal';
 import { googleSignIn, initAuth, logout } from './services/googleAuth';
 import { PortalPage, SiteFeedback, StudentSiteItem } from './types/portal';
-import { GAME_GENERATOR_URL, sortSites } from './utils/portalUtils';
+import { sortSites } from './utils/portalUtils';
 
 function resolvePageFromHash(): PortalPage {
   if (typeof window === 'undefined') return 'home';
   const hash = window.location.hash.replace(/^#\/?/, '').toLowerCase();
   if (hash === 'sites' || hash.startsWith('sites/')) {
     return 'sites';
+  }
+  if (hash === 'generator' || hash.startsWith('generator/')) {
+    return 'generator';
   }
   return 'home';
 }
@@ -94,8 +97,8 @@ export default function App() {
 
   const navigateTo = (page: PortalPage, sectionAnchor?: string) => {
     setActivePage(page);
-    if (page === 'sites') {
-      window.location.hash = 'sites';
+    if (page === 'sites' || page === 'generator') {
+      window.location.hash = page;
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -274,6 +277,15 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => navigateTo('generator')}
+              className={`lg:hidden hover:text-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                activePage === 'generator' ? 'text-amber-300 underline underline-offset-4' : ''
+              }`}
+            >
+              מחולל משחקים
+            </button>
+            <button
+              type="button"
               onClick={() => navigateTo('home', 'how-to-submit')}
               className="hidden md:inline-block hover:text-pink-400 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
@@ -282,15 +294,18 @@ export default function App() {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            <a
-              href={GAME_GENERATOR_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden lg:inline-flex min-h-10 items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-amber-400 bg-slate-900 text-amber-300 text-xs sm:text-sm font-extrabold hover:bg-amber-400 hover:text-slate-950 transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+            <button
+              type="button"
+              onClick={() => navigateTo('generator')}
+              className={`hidden lg:inline-flex min-h-10 items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs sm:text-sm font-extrabold transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${
+                activePage === 'generator'
+                  ? 'border-white bg-amber-400 text-slate-950'
+                  : 'border-amber-400 bg-slate-900 text-amber-300 hover:bg-amber-400 hover:text-slate-950'
+              }`}
             >
               <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>מחולל משחקים</span>
-            </a>
+            </button>
 
             <button
               type="button"
@@ -327,9 +342,20 @@ export default function App() {
             feedbackBySite={feedbackBySite}
             onOpenSite={setActiveSite}
             onBackHome={() => navigateTo('home')}
+            onOpenGenerator={() => navigateTo('generator')}
             onOpenSubmit={() => setIsSubmitOpen(true)}
             onRetryLoad={handleRetryFirestoreLoad}
             onOpenAdmin={() => setIsAdminOpen(true)}
+          />
+        ) : activePage === 'generator' ? (
+          <GamePromptGeneratorPage
+            user={authUser}
+            isSigningIn={isSigningIn}
+            onSignIn={handleGoogleSignIn}
+            onSignOut={handleGoogleSignOut}
+            onBackHome={() => navigateTo('home')}
+            onOpenCatalog={() => navigateTo('sites')}
+            onOpenSubmit={() => setIsSubmitOpen(true)}
           />
         ) : (
           <>
@@ -386,16 +412,15 @@ export default function App() {
                           <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
                         </button>
 
-                        <a
-                          href={GAME_GENERATOR_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-white bg-amber-400 text-slate-950 text-sm sm:text-base font-black shadow-[4px_4px_0px_#06b6d4] hover:bg-amber-300 hover:-translate-y-0.5 transition-all"
+                        <button
+                          type="button"
+                          onClick={() => navigateTo('generator')}
+                          className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-white bg-amber-400 text-slate-950 text-sm sm:text-base font-black shadow-[4px_4px_0px_#06b6d4] hover:bg-amber-300 hover:-translate-y-0.5 transition-all cursor-pointer"
                         >
                           <Gamepad2 className="w-5 h-5 shrink-0" aria-hidden="true" />
                           <span>מחולל משחקים</span>
-                          <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
-                        </a>
+                          <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        </button>
 
                         <button
                           type="button"
@@ -742,14 +767,13 @@ export default function App() {
             >
               דף האתרים
             </button>
-            <a
-              href={GAME_GENERATOR_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-amber-300 transition-colors"
+            <button
+              type="button"
+              onClick={() => navigateTo('generator')}
+              className="hover:text-amber-300 transition-colors cursor-pointer"
             >
               מחולל משחקים
-            </a>
+            </button>
             <button
               type="button"
               onClick={() => setIsAdminOpen(true)}

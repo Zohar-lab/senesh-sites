@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FileText,
   Globe,
   Info,
   KeyRound,
@@ -17,6 +18,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Shield,
   ShieldCheck,
   Star,
@@ -31,16 +33,26 @@ import {
   addEditorToFirestore,
   checkEditorAuthorization,
   createSiteInFirestore,
+  deleteGamePromptInFirestore,
   deleteSiteInFirestore,
   ensureSuperAdminBootstrapped,
+  fetchAllPromptsForAdmin,
   fetchAllSitesForAdmin,
   fetchEditorsForAdmin,
   removeEditorFromFirestore,
+  updateGamePromptInFirestore,
   updateSiteInFirestore,
   upsertImportedSitesToFirestore,
 } from '../services/firestorePortal';
 import { isSuperAdminEmail, SUPER_ADMIN_EMAIL } from '../services/googleAuth';
-import { AuthorizedEditor, SiteTag, StudentSiteItem, TagFilter } from '../types/portal';
+import {
+  AuthorizedEditor,
+  PromptProductionStatus,
+  SavedGamePromptItem,
+  SiteTag,
+  StudentSiteItem,
+  TagFilter,
+} from '../types/portal';
 import {
   exportSitesToCSV,
   inspectGoogleSiteUrl,
@@ -105,11 +117,17 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 }) => {
   const csvInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'sites' | 'editors' | 'deploy'>('sites');
+  const [activeTab, setActiveTab] = useState<'sites' | 'prompts' | 'editors' | 'deploy'>('sites');
   const [statusFilter, setStatusFilter] = useState<'הכל' | 'ממתין' | 'מאושר' | 'נדחה'>('הכל');
   const [tagFilter, setTagFilter] = useState<TagFilter>('הכל');
   const [onlyFeatured, setOnlyFeatured] = useState<boolean>(false);
   const [adminSites, setAdminSites] = useState<StudentSiteItem[]>([]);
+  const [adminPrompts, setAdminPrompts] = useState<SavedGamePromptItem[]>([]);
+  const [promptSearch, setPromptSearch] = useState<string>('');
+  const [promptStatusFilter, setPromptStatusFilter] = useState<'הכל' | PromptProductionStatus>('הכל');
+  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
+  const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
+  const [promptUrlDrafts, setPromptUrlDrafts] = useState<Record<string, string>>({});
   const [editors, setEditors] = useState<AuthorizedEditor[]>([]);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
@@ -138,6 +156,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     if (!user?.email) {
       setIsAuthorized(false);
       setAdminSites([]);
+      setAdminPrompts([]);
       setEditors([]);
       return;
     }
@@ -154,11 +173,12 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
       if (!allowed) {
         setAdminSites([]);
+        setAdminPrompts([]);
         setEditors([]);
         return;
       }
 
-      const [sitesList, editorsList] = await Promise.all([
+      const [sitesList, editorsList, promptsList] = await Promise.all([
         fetchAllSitesForAdmin(),
         isSuperAdmin
           ? fetchEditorsForAdmin()
@@ -176,10 +196,19 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                 addedAt: '',
               },
             ]),
+        fetchAllPromptsForAdmin(),
       ]);
 
       setAdminSites(sitesList);
       setEditors(editorsList);
+      setAdminPrompts(promptsList);
+      setPromptUrlDrafts((prev) => {
+        const next: Record<string, string> = {};
+        for (const p of promptsList) {
+          next[p.id] = prev[p.id] !== undefined ? prev[p.id] : p.createdSiteUrl || '';
+        }
+        return next;
+      });
     } catch (err) {
       setStatusMessage({
         type: 'error',
@@ -278,6 +307,32 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       return matchesStatus && matchesTag && matchesFeatured;
     });
   }, [adminSites, statusFilter, tagFilter, onlyFeatured]);
+
+  const promptCounts = useMemo(() => {
+    return {
+      all: adminPrompts.length,
+      waiting: adminPrompts.filter((p) => p.productionStatus === 'ממתין').length,
+      produced: adminPrompts.filter((p) => p.productionStatus === 'הופק').length,
+    };
+  }, [adminPrompts]);
+
+  const filteredAdminPrompts = useMemo(() => {
+    const q = promptSearch.trim().toLowerCase();
+    return adminPrompts.filter((p) => {
+      const matchesStatus =
+        promptStatusFilter === 'הכל' || p.productionStatus === promptStatusFilter;
+      if (!matchesStatus) return false;
+      if (!q) return true;
+      return (
+        p.promptName.toLowerCase().includes(q) ||
+        p.gameName.toLowerCase().includes(q) ||
+        p.creatorFirstName.toLowerCase().includes(q) ||
+        p.className.toLowerCase().includes(q) ||
+        (p.ownerEmail || '').toLowerCase().includes(q) ||
+        (p.createdSiteUrl || '').toLowerCase().includes(q)
+      );
+    });
+  }, [adminPrompts, promptSearch, promptStatusFilter]);
 
   if (!isOpen) return null;
 
@@ -551,6 +606,136 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     });
   };
 
+  const handleToggleAdminPromptStatus = async (prompt: SavedGamePromptItem) => {
+    if (!isAuthorized) return;
+    const nextStatus: PromptProductionStatus =
+      prompt.productionStatus === 'הופק' ? 'ממתין' : 'הופק';
+    setIsWorking(true);
+    setStatusMessage(null);
+    try {
+      await updateGamePromptInFirestore(prompt.id, {
+        promptName: prompt.promptName,
+        gameName: prompt.gameName,
+        creatorFirstName: prompt.creatorFirstName,
+        className: prompt.className,
+        promptText: prompt.promptText,
+        productionStatus: nextStatus,
+        createdSiteUrl: prompt.createdSiteUrl,
+        isManualEdited: prompt.isManualEdited,
+        wizardState: prompt.wizardState,
+      });
+      await loadConsoleData();
+      setStatusMessage({
+        type: 'success',
+        text: `סטטוס הפרומפט "${prompt.promptName}" עודכן ל-"${nextStatus}".`,
+      });
+    } catch (err) {
+      setStatusMessage({
+        type: 'error',
+        text:
+          err instanceof Error && !err.message.startsWith('{')
+            ? err.message
+            : 'עדכון הסטטוס נכשל.',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const handleSaveAdminPromptSiteUrl = async (prompt: SavedGamePromptItem) => {
+    if (!isAuthorized) return;
+    const draftUrl = (promptUrlDrafts[prompt.id] ?? prompt.createdSiteUrl ?? '').trim();
+    if (draftUrl && !normalizeHttpUrl(draftUrl)) {
+      setStatusMessage({
+        type: 'error',
+        text: 'הקישור לאתר אינו תקין. ודאו שהוא מתחיל ב-https://.',
+      });
+      return;
+    }
+
+    const nextUrl = draftUrl ? normalizeHttpUrl(draftUrl) : '';
+    const nextStatus: PromptProductionStatus =
+      nextUrl && prompt.productionStatus === 'ממתין' ? 'הופק' : prompt.productionStatus;
+
+    setIsWorking(true);
+    setStatusMessage(null);
+    try {
+      await updateGamePromptInFirestore(prompt.id, {
+        promptName: prompt.promptName,
+        gameName: prompt.gameName,
+        creatorFirstName: prompt.creatorFirstName,
+        className: prompt.className,
+        promptText: prompt.promptText,
+        productionStatus: nextStatus,
+        createdSiteUrl: nextUrl,
+        isManualEdited: prompt.isManualEdited,
+        wizardState: prompt.wizardState,
+      });
+      await loadConsoleData();
+      setStatusMessage({
+        type: 'success',
+        text: nextUrl
+          ? `הקישור לאתר נשמר בפרומפט "${prompt.promptName}".`
+          : `הקישור הוסר מהפרומפט "${prompt.promptName}".`,
+      });
+    } catch (err) {
+      setStatusMessage({
+        type: 'error',
+        text:
+          err instanceof Error && !err.message.startsWith('{')
+            ? err.message
+            : 'שמירת הקישור נכשלה.',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const requestDeleteAdminPrompt = (prompt: SavedGamePromptItem) => {
+    if (!isAuthorized) return;
+    setPendingConfirm({
+      title: `מחיקת הפרומפט "${prompt.promptName}"?`,
+      description: `הפרומפט של ${prompt.creatorFirstName} (${prompt.className}) יימחק לצמיתות ממסד הנתונים.`,
+      confirmLabel: 'מחיקה לצמיתות',
+      isDestructive: true,
+      execute: async () => {
+        await deleteGamePromptInFirestore(prompt.id);
+        await loadConsoleData();
+        setStatusMessage({
+          type: 'success',
+          text: `הפרומפט "${prompt.promptName}" נמחק.`,
+        });
+      },
+    });
+  };
+
+  const handleCopyAdminPrompt = async (prompt: SavedGamePromptItem) => {
+    try {
+      await navigator.clipboard.writeText(prompt.promptText);
+      setCopiedPromptId(prompt.id);
+      window.setTimeout(() => setCopiedPromptId(null), 2000);
+    } catch {
+      setExpandedPromptId(prompt.id);
+      setStatusMessage({
+        type: 'error',
+        text: 'הדפדפן חסם העתקה אוטומטית. פתחו את תצוגת הפרומפט והעתיקו ידנית.',
+      });
+    }
+  };
+
+  const handleDownloadAdminPrompt = (prompt: SavedGamePromptItem) => {
+    const safeName = prompt.promptName.replace(/[^\u0590-\u05FFa-zA-Z0-9_-]+/g, '_') || 'prompt';
+    const blob = new Blob([prompt.promptText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${safeName}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const requestAddEditor = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSuperAdmin) return;
@@ -814,6 +999,19 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       >
                         <Globe className="w-4 h-4" aria-hidden="true" />
                         <span>ניהול אתרי תלמידים ({adminSites.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('prompts')}
+                        className={`min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-bold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                          activeTab === 'prompts'
+                            ? 'bg-slate-950 text-pink-300 border-slate-950'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-950'
+                        }`}
+                      >
+                        <FileText className="w-4 h-4" aria-hidden="true" />
+                        <span>פרומטים מהמחולל ({adminPrompts.length})</span>
                       </button>
 
                       <button
@@ -1286,6 +1484,238 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* תוכן טאב פרומטים מהמחולל (צפייה בכל פרומטי התלמידים) */}
+                  {activeTab === 'prompts' && (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-bold tabular-nums">
+                          {(
+                            [
+                              { id: 'הכל', label: `הכל (${promptCounts.all})` },
+                              { id: 'ממתין', label: `ממתין להפקה (${promptCounts.waiting})` },
+                              { id: 'הופק', label: `הופק לאתר (${promptCounts.produced})` },
+                            ] as const
+                          ).map((tab) => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setPromptStatusFilter(tab.id)}
+                              className={`px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                promptStatusFilter === tab.id
+                                  ? 'bg-slate-900 text-white border-slate-900'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-400'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="relative w-full sm:w-72">
+                          <Search
+                            className="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 start-3 pointer-events-none"
+                            aria-hidden="true"
+                          />
+                          <input
+                            type="search"
+                            value={promptSearch}
+                            onChange={(e) => setPromptSearch(e.target.value)}
+                            placeholder="חיפוש לפי תלמיד, כיתה, משחק או מייל..."
+                            aria-label="חיפוש בפרומטי התלמידים"
+                            className="w-full min-h-9 ps-9 pe-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs sm:text-sm focus:outline-none focus:border-slate-950"
+                          />
+                        </div>
+                      </div>
+
+                      {isLoadingData ? (
+                        <div className="py-10 text-center text-sm text-slate-500">
+                          טוען פרומטים מ-Firestore...
+                        </div>
+                      ) : filteredAdminPrompts.length === 0 ? (
+                        <div className="p-8 rounded-xl border border-dashed border-slate-300 text-center text-sm text-slate-500">
+                          {adminPrompts.length === 0
+                            ? 'עדיין לא נשמרו פרומטים מהמחולל ב-Firestore.'
+                            : 'לא נמצאו פרומטים התואמים לחיפוש או לסינון שנבחר.'}
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {filteredAdminPrompts.map((prompt) => {
+                            const isExpanded = expandedPromptId === prompt.id;
+                            const urlDraft =
+                              promptUrlDrafts[prompt.id] ?? prompt.createdSiteUrl ?? '';
+                            return (
+                              <div
+                                key={prompt.id}
+                                className="p-4 rounded-xl border border-slate-200 bg-white space-y-3 hover:border-slate-400 transition-colors"
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                  <div className="min-w-0 space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-display font-extrabold text-slate-950">
+                                        {prompt.promptName}
+                                      </span>
+                                      <span
+                                        className={`text-xs font-extrabold px-2 py-0.5 rounded ${
+                                          prompt.productionStatus === 'הופק'
+                                            ? 'bg-emerald-100 text-emerald-900'
+                                            : 'bg-amber-100 text-amber-900'
+                                        }`}
+                                      >
+                                        סטטוס: {prompt.productionStatus}
+                                      </span>
+                                      {prompt.isManualEdited && (
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-cyan-100 text-cyan-900">
+                                          נערך ידנית
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                      <span>
+                                        יוצר: <strong>{prompt.creatorFirstName}</strong>
+                                      </span>
+                                      <span aria-hidden="true">·</span>
+                                      <span>כיתה: {prompt.className}</span>
+                                      <span aria-hidden="true">·</span>
+                                      <span>משחק: {prompt.gameName}</span>
+                                      {prompt.ownerEmail && (
+                                        <>
+                                          <span aria-hidden="true">·</span>
+                                          <span dir="ltr" className="font-mono text-slate-500">
+                                            {prompt.ownerEmail}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedPromptId(isExpanded ? null : prompt.id)
+                                      }
+                                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-slate-50 text-slate-800 text-xs font-bold hover:bg-slate-100 cursor-pointer"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                                      <span>{isExpanded ? 'הסתר טקסט' : 'הצג פרומפט'}</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyAdminPrompt(prompt)}
+                                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100 cursor-pointer"
+                                    >
+                                      {copiedPromptId === prompt.id ? (
+                                        <>
+                                          <Check className="w-3.5 h-3.5 text-emerald-700" aria-hidden="true" />
+                                          <span>הועתק</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                                          <span>העתק</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadAdminPrompt(prompt)}
+                                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100 cursor-pointer"
+                                    >
+                                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                                      <span>TXT</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      disabled={isWorking}
+                                      onClick={() => handleToggleAdminPromptStatus(prompt)}
+                                      className={`min-h-8 px-2.5 py-1 rounded-md text-xs font-bold cursor-pointer ${
+                                        prompt.productionStatus === 'הופק'
+                                          ? 'border border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                                          : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                      }`}
+                                    >
+                                      {prompt.productionStatus === 'הופק'
+                                        ? 'סמן כממתין'
+                                        : 'סמן כהופק'}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      disabled={isWorking}
+                                      onClick={() => requestDeleteAdminPrompt(prompt)}
+                                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-800 text-xs font-semibold hover:bg-rose-100 cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                      <span>מחיקה</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* שדה קישור לאתר שנוצר */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t border-slate-100">
+                                  <label
+                                    htmlFor={`admin-prompt-url-${prompt.id}`}
+                                    className="text-xs font-bold text-slate-700 shrink-0"
+                                  >
+                                    קישור לאתר שנוצר:
+                                  </label>
+                                  <input
+                                    id={`admin-prompt-url-${prompt.id}`}
+                                    type="url"
+                                    dir="ltr"
+                                    maxLength={500}
+                                    value={urlDraft}
+                                    onChange={(e) =>
+                                      setPromptUrlDrafts((prev) => ({
+                                        ...prev,
+                                        [prompt.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="https://sites.google.com/..."
+                                    className="flex-1 min-h-8 px-2.5 py-1 rounded-md border border-slate-300 bg-slate-50 text-xs font-mono focus:outline-none focus:border-slate-950"
+                                  />
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={isWorking}
+                                      onClick={() => handleSaveAdminPromptSiteUrl(prompt)}
+                                      className="min-h-8 px-3 py-1 rounded-md border border-slate-950 bg-lime-400 text-slate-950 text-xs font-extrabold hover:bg-lime-300 cursor-pointer"
+                                    >
+                                      שמור קישור
+                                    </button>
+                                    {prompt.createdSiteUrl && (
+                                      <a
+                                        href={prompt.createdSiteUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-cyan-500 bg-cyan-50 text-cyan-900 text-xs font-bold hover:bg-cyan-100"
+                                      >
+                                        <span>פתח אתר</span>
+                                        <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {isExpanded && (
+                                  <pre
+                                    dir="rtl"
+                                    className="p-3 rounded-lg bg-slate-950 text-slate-100 text-xs whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto"
+                                  >
+                                    {prompt.promptText}
+                                  </pre>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

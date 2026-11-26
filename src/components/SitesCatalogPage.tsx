@@ -5,7 +5,6 @@ import {
   ArrowUpDown,
   ChevronDown,
   Clock,
-  ExternalLink,
   Gamepad2,
   Globe,
   Info,
@@ -25,7 +24,6 @@ import {
   TagFilter,
 } from '../types/portal';
 import {
-  GAME_GENERATOR_URL,
   matchesGradeFilter,
   SITE_TAGS,
   sortSites,
@@ -42,6 +40,7 @@ interface SitesCatalogPageProps {
   feedbackBySite: Record<string, SiteFeedback[]>;
   onOpenSite: (site: StudentSiteItem) => void;
   onBackHome: () => void;
+  onOpenGenerator: () => void;
   onOpenSubmit: () => void;
   onRetryLoad?: () => void;
   onOpenAdmin?: () => void;
@@ -71,6 +70,7 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
   feedbackBySite,
   onOpenSite,
   onBackHome,
+  onOpenGenerator,
   onOpenSubmit,
   onRetryLoad,
   onOpenAdmin,
@@ -215,16 +215,14 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
               <strong className="text-lime-300 font-black text-base ms-1">{sites.length}</strong>{' '}
               אתרים ומשחקים בגלריה
             </div>
-            <a
-              href={GAME_GENERATOR_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="min-h-11 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-white bg-amber-400 text-slate-950 text-sm font-extrabold shadow-[3px_3px_0px_#06b6d4] hover:bg-amber-300 transition-colors"
+            <button
+              type="button"
+              onClick={onOpenGenerator}
+              className="min-h-11 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-white bg-amber-400 text-slate-950 text-sm font-extrabold shadow-[3px_3px_0px_#06b6d4] hover:bg-amber-300 transition-colors cursor-pointer"
             >
               <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>מחולל משחקים</span>
-              <ExternalLink className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-            </a>
+            </button>
             <button
               type="button"
               onClick={onOpenSubmit}
