@@ -14,11 +14,10 @@ import {
 import { SiteFeedback, StudentSiteItem } from '../types/portal';
 import { checkFeedbackModeration } from '../utils/moderation';
 import {
-  formatDriveImage,
   formatStudentFirstNameAndNickname,
-  getDriveThumbnailFallback,
   inspectGoogleSiteUrl,
 } from '../utils/portalUtils';
+import { SitePreviewMedia } from './SitePreviewMedia';
 
 interface SiteShowcaseModalProps {
   site: StudentSiteItem | null;
@@ -35,12 +34,6 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
 }) => {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const primaryImg = formatDriveImage(site?.imageUrl);
-  const secondaryImg = getDriveThumbnailFallback(site?.imageUrl);
-  const [imgSrc, setImgSrc] = useState<string>(primaryImg);
-  const [triedFallback, setTriedFallback] = useState(false);
-  const [imageFailed, setImageFailed] = useState(!primaryImg);
-
   // שדות טופס המשוב (שם פרטי + כינוי בלבד)
   const [firstName, setFirstName] = useState('');
   const [nickname, setNickname] = useState('');
@@ -53,11 +46,6 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
 
   useEffect(() => {
     if (!site) return;
-    const nextPrimary = formatDriveImage(site.imageUrl);
-    setImgSrc(nextPrimary);
-    setTriedFallback(false);
-    setImageFailed(!nextPrimary);
-
     setFirstName('');
     setNickname('');
     setPlayerGrade('');
@@ -96,15 +84,6 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
     feedbacks.length > 0
       ? feedbacks.reduce((sum, item) => sum + item.rating, 0) / feedbacks.length
       : null;
-
-  const handleImageError = () => {
-    if (!triedFallback && secondaryImg && imgSrc !== secondaryImg) {
-      setTriedFallback(true);
-      setImgSrc(secondaryImg);
-      return;
-    }
-    setImageFailed(true);
-  };
 
   const handleFeedbackSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -258,21 +237,22 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
         <div className="overflow-y-auto p-4 sm:p-6 space-y-6">
           {/* כרטיס מסך הפתיחה של התלמיד */}
           <div className="relative rounded-2xl overflow-hidden border-2 border-slate-950 bg-slate-950 text-white shadow-[5px_5px_0px_#020617]">
-            {!imageFailed && imgSrc && (
-              <>
-                <img
-                  src={imgSrc}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  onError={handleImageError}
-                  className="absolute inset-0 w-full h-full object-cover opacity-35"
-                />
-                <div
-                  aria-hidden="true"
-                  className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/85 to-slate-900/75"
-                />
-              </>
-            )}
+            <div className="absolute inset-0 opacity-40 pointer-events-none">
+              <SitePreviewMedia
+                title={site.title}
+                creatorsText={creatorsText}
+                grade={site.grade}
+                primaryTag={site.tags[0] || site.category}
+                siteUrl={site.siteUrl}
+                imageUrl={site.imageUrl}
+                variant="backdrop"
+                alt=""
+              />
+            </div>
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/85 to-slate-900/75"
+            />
 
             <div className="relative p-5 sm:p-8 flex flex-col justify-between gap-6 min-h-[300px]">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-cyan-300">

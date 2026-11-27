@@ -1,6 +1,7 @@
 import { FirebaseApp, getApps, initializeApp } from 'firebase/app';
 import { Auth, getAuth } from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { FirebaseStorage, getStorage } from 'firebase/storage';
 
 interface FirebaseAppletConfig {
   projectId?: string;
@@ -76,6 +77,10 @@ export const isFirebaseConfigured = Boolean(
   resolvedConfig.apiKey && resolvedConfig.projectId && resolvedConfig.appId
 );
 
+export const isFirebaseStorageConfigured = Boolean(
+  isFirebaseConfigured && resolvedConfig.storageBucket
+);
+
 export const firebaseConfigError = isFirebaseConfigured
   ? null
   : 'הגדרות Firebase חסרות בבנייה זו. הוסיפו את הסוד FIREBASE_APPLET_CONFIG בהגדרות GitHub Actions והריצו פריסה מחדש.';
@@ -83,6 +88,7 @@ export const firebaseConfigError = isFirebaseConfigured
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
 let dbInstance: Firestore | null = null;
+let storageInstance: FirebaseStorage | null = null;
 
 if (isFirebaseConfigured) {
   appInstance =
@@ -101,6 +107,14 @@ if (isFirebaseConfigured) {
   dbInstance = resolvedConfig.firestoreDatabaseId
     ? getFirestore(appInstance, resolvedConfig.firestoreDatabaseId)
     : getFirestore(appInstance);
+
+  if (resolvedConfig.storageBucket) {
+    try {
+      storageInstance = getStorage(appInstance);
+    } catch {
+      storageInstance = null;
+    }
+  }
 }
 
 export function getActiveFirebaseSecretConfig(): FirebaseAppletConfig | null {
@@ -122,3 +136,4 @@ export function getActiveFirebaseSecretConfig(): FirebaseAppletConfig | null {
 export const firebaseApp = appInstance;
 export const auth = authInstance;
 export const db = dbInstance;
+export const storage = storageInstance;

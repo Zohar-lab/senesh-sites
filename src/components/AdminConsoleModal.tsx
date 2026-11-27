@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
   AlertTriangle,
+  Camera,
   Check,
   CheckCircle2,
+  CloudUpload,
   Copy,
   Database,
   Download,
@@ -12,6 +14,7 @@ import {
   EyeOff,
   FileText,
   Globe,
+  ImagePlus,
   Info,
   KeyRound,
   LogOut,
@@ -31,7 +34,10 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { getActiveFirebaseSecretConfig } from '../services/firebaseApp';
+import {
+  getActiveFirebaseSecretConfig,
+  isFirebaseStorageConfigured,
+} from '../services/firebaseApp';
 import {
   addEditorToFirestore,
   checkEditorAuthorization,
@@ -48,6 +54,7 @@ import {
   upsertImportedSitesToFirestore,
 } from '../services/firestorePortal';
 import { isSuperAdminEmail, SUPER_ADMIN_EMAIL } from '../services/googleAuth';
+import { uploadSiteCoverToStorage } from '../services/sitePreviewStorage';
 import {
   AuthorizedEditor,
   PromptProductionStatus,
@@ -66,7 +73,14 @@ import {
   sanitizeStudentDisplayName,
   SITE_TAGS,
 } from '../utils/portalUtils';
+import {
+  buildAutoScreenshotUrl,
+  isPubliclyCapturableUrl,
+  renderSmartCoverPngBlob,
+  triggerCoverPngDownload,
+} from '../utils/previewGenerator';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { ResolvedPreviewKind, SitePreviewMedia } from './SitePreviewMedia';
 
 interface AdminConsoleModalProps {
   isOpen: boolean;
@@ -145,6 +159,7 @@ interface CanvasPendingSiteDraft {
   tags: SiteTag[];
   description: string;
   siteUrl: string;
+  imageUrl: string;
 }
 
 function deriveDefaultTagsFromPrompt(promptText: string, gameTitle: string): SiteTag[] {
@@ -242,6 +257,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   const [showSiteForm, setShowSiteForm] = useState(false);
   const [editingSite, setEditingSite] = useState<StudentSiteItem | null>(null);
   const [siteForm, setSiteForm] = useState<SiteFormState>(EMPTY_SITE_FORM);
+  const [isGeneratingFormPreview, setIsGeneratingFormPreview] = useState(false);
+  const [formPreviewKind, setFormPreviewKind] = useState<ResolvedPreviewKind>('smart-cover');
+  const [previewActionSiteId, setPreviewActionSiteId] = useState<string | null>(null);
 
   const [editingAdminPrompt, setEditingAdminPrompt] = useState<SavedGamePromptItem | null>(null);
   const [adminPromptForm, setAdminPromptForm] =
@@ -250,6 +268,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
   const [pendingCanvasSite, setPendingCanvasSite] = useState<CanvasPendingSiteDraft | null>(null);
   const [canvasSiteModalError, setCanvasSiteModalError] = useState<string | null>(null);
+  const [canvasPreviewKind, setCanvasPreviewKind] =
+    useState<ResolvedPreviewKind>('smart-cover');
 
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
@@ -415,6 +435,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       approved: adminSites.filter((s) => s.status === 'מאושר').length,
       rejected: adminSites.filter((s) => s.status === 'נדחה').length,
       featured: adminSites.filter((s) => s.isFeatured).length,
+      missingImage: adminSites.filter((s) => !s.imageUrl.trim()).length,
     };
   }, [adminSites]);
 
@@ -732,6 +753,304 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
         setStatusMessage({
           type: 'success',
           text: `האתר "${site.title}" נמחק מהפורטל.`,
+        });
+      },
+    });
+  };
+
+  const handleApplyScreenshotToForm = (target: 'siteForm' | 'canvasForm') => {
+    const rawUrl =
+      target === 'siteForm' ? siteForm.siteUrl : pendingCanvasSite?.siteUrl || '';
+    const linkCheck = inspectGoogleSiteUrl(rawUrl, false);
+    if (!linkCheck.isValid) {
+      const msg =
+        linkCheck.errorMessage ||
+        'הזינו תחילה קישור אתר תקין כדי להפיק ממנו צילום מסך.';
+      if (target === 'canvasForm') {
+        setCanvasSiteModalError(msg);
+      } else {
+        setStatusMessage({ type: 'error', text: msg });
+      }
+      return;
+    }
+
+    const screenshotUrl = buildAutoScreenshotUrl(linkCheck.normalizedUrl, 1200, 675);
+    if (!screenshotUrl) {
+      const msg = 'הכתובת ארוכה מדי עבור קישור צילום מסך ישיר. מומלץ ליצור עטיפת נושא לענן.';
+      if (target === 'canvasForm') {
+        setCanvasSiteModalError(msg);
+      } else {
+        setStatusMessage({ type: 'error', text: msg });
+      }
+      return;
+    }
+
+    if (target === 'siteForm') {
+      setSiteForm((prev) => ({ ...prev, imageUrl: screenshotUrl }));
+      setStatusMessage({
+        type: linkCheck.isOrgScopedUrl ? 'error' : 'success',
+        text: linkCheck.isOrgScopedUrl
+          ? 'קישור צילום המסך הוזן לבדיקה. מאחר שמדובר בכתובת ארגונית, ודאו בחלון התצוגה המקדימה שלא מופיע מסך כניסה של Google — או בחרו ב"עטיפת נושא לענן".'
+          : 'קישור צילום המסך הוזן! בדקו את התצוגה המקדימה ולחצו על שמירה כדי לקבע אותו בענן.',
+      });
+    } else {
+      setCanvasSiteModalError(null);
+      setPendingCanvasSite((prev) =>
+        prev ? { ...prev, imageUrl: screenshotUrl } : prev
+      );
+    }
+  };
+
+  const handleDownloadCoverForForm = async (target: 'siteForm' | 'canvasForm') => {
+    const title =
+      target === 'siteForm'
+        ? siteForm.title.trim() || 'אתר תלמידים'
+        : pendingCanvasSite?.title.trim() || 'משחק חדש';
+    const creatorsText =
+      target === 'siteForm'
+        ? parseCreatorsList(siteForm.creatorsText).join(', ')
+        : pendingCanvasSite?.creatorFirstName.trim() || 'תלמיד';
+    const grade =
+      target === 'siteForm'
+        ? siteForm.grade
+        : pendingCanvasSite?.className.trim() || "ג'-ד'";
+    const primaryTag =
+      target === 'siteForm'
+        ? siteForm.tags[0] || 'מידע'
+        : pendingCanvasSite?.tags[0] || 'משחק תחביב';
+
+    setIsGeneratingFormPreview(true);
+    try {
+      const blob = await renderSmartCoverPngBlob({
+        title,
+        creatorsText,
+        grade,
+        primaryTag,
+      });
+      triggerCoverPngDownload(blob, title);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'לא הצלחנו לייצר את קובץ התמונה.';
+      if (target === 'canvasForm') {
+        setCanvasSiteModalError(msg);
+      } else {
+        setStatusMessage({ type: 'error', text: msg });
+      }
+    } finally {
+      setIsGeneratingFormPreview(false);
+    }
+  };
+
+  const handleGenerateAndUploadForForm = async (
+    target: 'siteForm' | 'canvasForm'
+  ) => {
+    const title =
+      target === 'siteForm'
+        ? siteForm.title.trim() || 'אתר תלמידים'
+        : pendingCanvasSite?.title.trim() || 'משחק חדש';
+    const creatorsText =
+      target === 'siteForm'
+        ? parseCreatorsList(siteForm.creatorsText).join(', ')
+        : pendingCanvasSite?.creatorFirstName.trim() || 'תלמיד';
+    const grade =
+      target === 'siteForm'
+        ? siteForm.grade
+        : pendingCanvasSite?.className.trim() || "ג'-ד'";
+    const primaryTag =
+      target === 'siteForm'
+        ? siteForm.tags[0] || 'מידע'
+        : pendingCanvasSite?.tags[0] || 'משחק תחביב';
+
+    setIsGeneratingFormPreview(true);
+    if (target === 'canvasForm') {
+      setCanvasSiteModalError(null);
+    } else {
+      setStatusMessage(null);
+    }
+
+    let generatedBlob: Blob | null = null;
+    try {
+      generatedBlob = await renderSmartCoverPngBlob({
+        title,
+        creatorsText,
+        grade,
+        primaryTag,
+      });
+      const slug =
+        target === 'siteForm' && editingSite
+          ? editingSite.id
+          : title;
+      const downloadUrl = await uploadSiteCoverToStorage(slug, generatedBlob);
+
+      if (target === 'siteForm') {
+        setSiteForm((prev) => ({ ...prev, imageUrl: downloadUrl }));
+        setStatusMessage({
+          type: 'success',
+          text: 'תמונת התצוגה המקדימה נוצרה והועלתה ל-Firebase Storage! לחצו על "שמירת עדכון" כדי לקבע אותה בכרטיסיית האתר.',
+        });
+      } else {
+        setPendingCanvasSite((prev) =>
+          prev ? { ...prev, imageUrl: downloadUrl } : prev
+        );
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'לא הצלחנו להעלות את התמונה לענן כרגע.';
+      if (target === 'canvasForm') {
+        setCanvasSiteModalError(msg);
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: msg,
+          actionLabel: generatedBlob ? 'הורד PNG למחשב' : undefined,
+          onAction: generatedBlob
+            ? () => triggerCoverPngDownload(generatedBlob!, title)
+            : undefined,
+        });
+      }
+    } finally {
+      setIsGeneratingFormPreview(false);
+    }
+  };
+
+  const handleQuickGenerateAndSaveSitePreview = async (site: StudentSiteItem) => {
+    if (!isAuthorized) return;
+    setPreviewActionSiteId(site.id);
+    setStatusMessage(null);
+
+    let generatedBlob: Blob | null = null;
+    let nextImageUrl = '';
+    let savedModeLabel = '';
+
+    try {
+      generatedBlob = await renderSmartCoverPngBlob({
+        title: site.title,
+        creatorsText: site.creators.join(', '),
+        grade: site.grade,
+        primaryTag: site.tags[0] || site.category,
+      });
+
+      if (isFirebaseStorageConfigured) {
+        try {
+          nextImageUrl = await uploadSiteCoverToStorage(site.id, generatedBlob);
+          savedModeLabel = 'עטיפת נושא בענן (Firebase Storage)';
+        } catch (storageErr) {
+          if (isPubliclyCapturableUrl(site.siteUrl)) {
+            nextImageUrl = buildAutoScreenshotUrl(site.siteUrl, 1200, 675);
+            savedModeLabel = 'צילום מסך אוטומטי מהאתר';
+          } else {
+            throw storageErr;
+          }
+        }
+      } else if (isPubliclyCapturableUrl(site.siteUrl)) {
+        nextImageUrl = buildAutoScreenshotUrl(site.siteUrl, 1200, 675);
+        savedModeLabel = 'צילום מסך אוטומטי מהאתר';
+      } else {
+        throw new Error(
+          'Firebase Storage טרם הופעל בפרויקט והאתר ארגוני. הורידו את תמונת ה-PNG והעלו ל-Google Drive, או הפעילו Storage במסוף Firebase.'
+        );
+      }
+
+      if (!nextImageUrl) {
+        throw new Error('לא נוצר קישור תקין לשמירה.');
+      }
+
+      await updateSiteInFirestore(site.id, {
+        title: site.title,
+        creators: site.creators,
+        creatorNote: site.creatorNote,
+        grade: site.grade,
+        category: site.category,
+        tags: site.tags,
+        isFeatured: site.isFeatured,
+        description: site.description,
+        siteUrl: site.siteUrl,
+        imageUrl: nextImageUrl,
+        status: site.status,
+      });
+
+      await loadConsoleData();
+      setStatusMessage({
+        type: 'success',
+        text: `נשמרה תמונת תצוגה מקדימה עבור "${site.title}" (${savedModeLabel}).`,
+      });
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'שמירת התמונה נכשלה.';
+      setStatusMessage({
+        type: 'error',
+        text: msg,
+        actionLabel: generatedBlob ? 'הורד PNG' : undefined,
+        onAction: generatedBlob
+          ? () => triggerCoverPngDownload(generatedBlob!, site.title)
+          : undefined,
+      });
+    } finally {
+      setPreviewActionSiteId(null);
+    }
+  };
+
+  const requestBatchGenerateMissingPreviews = () => {
+    if (!isAuthorized) return;
+    const targets = adminSites.filter((s) => !s.imageUrl.trim());
+    if (targets.length === 0) return;
+
+    setPendingConfirm({
+      title: `יצירה ושמירה של תמונות תצוגה ל-${targets.length} אתרים?`,
+      description:
+        'לכל אתר שחסרה בו תמונה תיווצר עטיפת נושא מעוצבת שתועלה לענן Firebase Storage (או קישור צילום מסך אוטומטי לאתרים ציבוריים). אתרים ארגוניים ללא Storage מופעל ימשיכו להציג אוטומטית את עטיפת הנושא החכמה.',
+      confirmLabel: `צור ושמור (${targets.length})`,
+      execute: async () => {
+        let updatedCount = 0;
+        let storageAvailable = isFirebaseStorageConfigured;
+
+        for (const site of targets) {
+          let nextUrl = '';
+          if (storageAvailable) {
+            try {
+              const blob = await renderSmartCoverPngBlob({
+                title: site.title,
+                creatorsText: site.creators.join(', '),
+                grade: site.grade,
+                primaryTag: site.tags[0] || site.category,
+              });
+              nextUrl = await uploadSiteCoverToStorage(site.id, blob);
+            } catch {
+              storageAvailable = false;
+            }
+          }
+
+          if (!nextUrl && isPubliclyCapturableUrl(site.siteUrl)) {
+            nextUrl = buildAutoScreenshotUrl(site.siteUrl, 1200, 675);
+          }
+
+          if (!nextUrl) continue;
+
+          await updateSiteInFirestore(site.id, {
+            title: site.title,
+            creators: site.creators,
+            creatorNote: site.creatorNote,
+            grade: site.grade,
+            category: site.category,
+            tags: site.tags,
+            isFeatured: site.isFeatured,
+            description: site.description,
+            siteUrl: site.siteUrl,
+            imageUrl: nextUrl,
+            status: site.status,
+          });
+          updatedCount += 1;
+        }
+
+        await loadConsoleData();
+        setStatusMessage({
+          type: updatedCount > 0 ? 'success' : 'error',
+          text:
+            updatedCount > 0
+              ? `הושלמו ונשמרו תמונות תצוגה מקדימה עבור ${updatedCount} מתוך ${targets.length} אתרים.`
+              : 'לא ניתן היה להעלות ל-Firebase Storage (ודאו שהשירות וכללי Storage מופעלים במסוף Firebase). בינתיים הפורטל מציג אוטומטית עטיפות נושא חכמות לכל האתרים.',
         });
       },
     });
@@ -1096,6 +1415,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       tags: deriveDefaultTagsFromPrompt(resolvedPromptText, resolvedTitle),
       description: deriveDefaultDescriptionFromPrompt(prompt, resolvedPromptText),
       siteUrl: resolvedUrl,
+      imageUrl: '',
     });
   };
 
@@ -1210,7 +1530,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
           cleanDescription ||
           `משחק אינטראקטיבי שיצר/ה ${cleanCreator} (כיתה ${cleanClass}).`,
         siteUrl: linkCheck.normalizedUrl,
-        imageUrl: '',
+        imageUrl: pendingCanvasSite.imageUrl.trim()
+          ? normalizeHttpUrl(pendingCanvasSite.imageUrl)
+          : '',
         status: 'ממתין',
       });
 
@@ -1715,6 +2037,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                             />
                             <span>נבחרים בלבד ({counts.featured})</span>
                           </button>
+
+                          {counts.missingImage > 0 && (
+                            <button
+                              type="button"
+                              disabled={isWorking}
+                              onClick={requestBatchGenerateMissingPreviews}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-950 font-extrabold hover:bg-indigo-100 cursor-pointer disabled:opacity-60"
+                            >
+                              <ImagePlus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <span>השלם תמונות לחסרים ({counts.missingImage})</span>
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -1795,7 +2129,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
                             <div>
                               <label className="block text-xs font-bold text-slate-700 mb-1">
-                                קישור לתמונת שער (Google Drive או URL)
+                                קישור לתמונת שער (Google Drive, Firebase Storage או URL)
                               </label>
                               <input
                                 type="text"
@@ -1805,9 +2139,91 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                 onChange={(e) =>
                                   setSiteForm((f) => ({ ...f, imageUrl: e.target.value }))
                                 }
-                                placeholder="https://drive.google.com/file/d/..."
+                                placeholder="https://... (אופציונלי — או הפיקו אוטומטית למטה)"
                                 className="w-full min-h-10 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-mono"
                               />
+                            </div>
+
+                            <div className="sm:col-span-2 p-3.5 rounded-xl border border-slate-200 bg-white grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-center">
+                              <div className="sm:col-span-5 aspect-video rounded-lg overflow-hidden border border-slate-950 bg-slate-900">
+                                <SitePreviewMedia
+                                  title={siteForm.title.trim() || 'שם האתר או המשחק'}
+                                  creatorsText={parseCreatorsList(siteForm.creatorsText).join(', ')}
+                                  grade={siteForm.grade}
+                                  primaryTag={siteForm.tags[0] || 'מידע'}
+                                  siteUrl={siteForm.siteUrl}
+                                  imageUrl={siteForm.imageUrl}
+                                  variant="admin-preview"
+                                  onResolvedSourceChange={({ kind }) =>
+                                    setFormPreviewKind(kind)
+                                  }
+                                />
+                              </div>
+                              <div className="sm:col-span-7 space-y-2.5">
+                                <div className="space-y-0.5">
+                                  <div className="text-xs font-extrabold text-slate-950">
+                                    תצוגה מקדימה של כרטיסיית האתר (16:9)
+                                  </div>
+                                  <div className="text-xs text-slate-600">
+                                    מקור פעיל:{' '}
+                                    <span className="font-bold text-slate-900">
+                                      {formPreviewKind === 'saved'
+                                        ? 'קישור תמונה שמור'
+                                        : formPreviewKind === 'screenshot'
+                                          ? 'צילום מסך אוטומטי מהכתובת'
+                                          : 'עטיפת נושא חכמה (גיבוי אוטומטי)'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={isGeneratingFormPreview || !siteForm.siteUrl.trim()}
+                                    onClick={() => handleApplyScreenshotToForm('siteForm')}
+                                    className="min-h-8 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-300 bg-slate-50 text-slate-800 text-xs font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                                  >
+                                    <Camera className="w-3.5 h-3.5" aria-hidden="true" />
+                                    <span>צילום מסך מהכתובת</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isGeneratingFormPreview}
+                                    onClick={() => handleGenerateAndUploadForForm('siteForm')}
+                                    className="min-h-8 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-indigo-950 bg-indigo-600 text-white text-xs font-extrabold hover:bg-indigo-700 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                                  >
+                                    <CloudUpload className="w-3.5 h-3.5" aria-hidden="true" />
+                                    <span>
+                                      {isGeneratingFormPreview
+                                        ? 'מייצר ומעלה...'
+                                        : 'עטיפת נושא לענן'}
+                                    </span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isGeneratingFormPreview}
+                                    onClick={() => handleDownloadCoverForForm('siteForm')}
+                                    className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                                  >
+                                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                                    <span>הורד PNG</span>
+                                  </button>
+
+                                  {siteForm.imageUrl.trim() && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSiteForm((f) => ({ ...f, imageUrl: '' }))
+                                      }
+                                      className="min-h-8 px-2.5 py-1 rounded-md text-xs font-bold text-rose-700 hover:bg-rose-50 cursor-pointer whitespace-nowrap shrink-0"
+                                    >
+                                      נקה קישור
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
 
                             <div>
@@ -1951,52 +2367,87 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         </div>
                       ) : (
                         <div className="space-y-2.5">
-                          {filteredAdminSites.map((s) => (
+                          {filteredAdminSites.map((s) => {
+                            const hasSavedImage = Boolean(s.imageUrl.trim());
+                            const isPreviewBusy = previewActionSiteId === s.id;
+                            return (
                             <div
                               key={s.id}
                               className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-slate-200 bg-white hover:border-slate-400 transition-colors"
                             >
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="font-display font-bold text-slate-950">
-                                    {s.title}
-                                  </span>
-                                  <span
-                                    className={`text-xs font-extrabold px-2 py-0.5 rounded ${
-                                      s.status === 'מאושר'
-                                        ? 'bg-emerald-100 text-emerald-900'
-                                        : s.status === 'נדחה'
-                                          ? 'bg-rose-100 text-rose-900'
-                                          : 'bg-amber-100 text-amber-900'
-                                    }`}
-                                  >
-                                    סטטוס: {s.status}
-                                  </span>
-                                  {s.isFeatured && (
-                                    <span className="inline-flex items-center gap-1 text-xs font-extrabold px-2 py-0.5 rounded bg-amber-300 text-slate-950">
-                                      <Star className="w-3 h-3 fill-slate-950" aria-hidden="true" />
-                                      <span>נבחר</span>
+                              <div className="flex items-start gap-3 min-w-0 flex-1">
+                                <div className="w-28 aspect-video rounded-lg overflow-hidden border border-slate-950 bg-slate-900 shrink-0">
+                                  <SitePreviewMedia
+                                    title={s.title}
+                                    creatorsText={s.creators.join(', ')}
+                                    grade={s.grade}
+                                    primaryTag={s.tags[0] || s.category}
+                                    siteUrl={s.siteUrl}
+                                    imageUrl={s.imageUrl}
+                                    variant="compact"
+                                  />
+                                </div>
+                                <div className="min-w-0 space-y-1 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-display font-bold text-slate-950">
+                                      {s.title}
                                     </span>
-                                  )}
-                                </div>
-                                <div className="text-xs text-slate-600">
-                                  יוצרים: {s.creators.join(', ')} · שכבת {s.grade} · תוויות:{' '}
-                                  {(s.tags.length > 0 ? s.tags : [s.category]).join(', ')}
-                                </div>
-                                <div
-                                  dir="ltr"
-                                  className="text-xs font-mono text-slate-500 truncate max-w-md"
-                                >
-                                  {s.siteUrl}
+                                    <span
+                                      className={`text-xs font-extrabold px-2 py-0.5 rounded ${
+                                        s.status === 'מאושר'
+                                          ? 'bg-emerald-100 text-emerald-900'
+                                          : s.status === 'נדחה'
+                                            ? 'bg-rose-100 text-rose-900'
+                                            : 'bg-amber-100 text-amber-900'
+                                      }`}
+                                    >
+                                      סטטוס: {s.status}
+                                    </span>
+                                    {s.isFeatured && (
+                                      <span className="inline-flex items-center gap-1 text-xs font-extrabold px-2 py-0.5 rounded bg-amber-300 text-slate-950">
+                                        <Star className="w-3 h-3 fill-slate-950" aria-hidden="true" />
+                                        <span>נבחר</span>
+                                      </span>
+                                    )}
+                                    <span
+                                      className={`text-xs font-bold ${
+                                        hasSavedImage ? 'text-emerald-700' : 'text-indigo-700'
+                                      }`}
+                                    >
+                                      · {hasSavedImage ? 'תמונה שמורה' : 'תצוגה אוטומטית (ללא תמונה שמורה)'}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-slate-600">
+                                    יוצרים: {s.creators.join(', ')} · שכבת {s.grade} · תוויות:{' '}
+                                    {(s.tags.length > 0 ? s.tags : [s.category]).join(', ')}
+                                  </div>
+                                  <div
+                                    dir="ltr"
+                                    className="text-xs font-mono text-slate-500 truncate max-w-md"
+                                  >
+                                    {s.siteUrl}
+                                  </div>
                                 </div>
                               </div>
 
                               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                {!hasSavedImage && (
+                                  <button
+                                    type="button"
+                                    disabled={isWorking || isPreviewBusy}
+                                    onClick={() => handleQuickGenerateAndSaveSitePreview(s)}
+                                    className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-indigo-950 bg-indigo-600 text-white text-xs font-extrabold hover:bg-indigo-700 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+                                  >
+                                    <ImagePlus className="w-3.5 h-3.5" aria-hidden="true" />
+                                    <span>{isPreviewBusy ? 'שומר תמונה...' : 'צור ושמור תמונה'}</span>
+                                  </button>
+                                )}
+
                                 <a
                                   href={s.siteUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-slate-50 text-slate-800 text-xs font-bold hover:bg-slate-100"
+                                  className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-slate-50 text-slate-800 text-xs font-bold hover:bg-slate-100 whitespace-nowrap shrink-0"
                                 >
                                   <span>בדיקת האתר</span>
                                   <ExternalLink className="w-3 h-3" aria-hidden="true" />
@@ -2005,7 +2456,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => requestToggleFeatured(s)}
-                                  className={`min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs font-bold cursor-pointer ${
+                                  className={`min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 ${
                                     s.isFeatured
                                       ? 'border-amber-400 bg-amber-100 text-amber-950 hover:bg-amber-200'
                                       : 'border-slate-300 bg-white text-slate-700 hover:bg-amber-50'
@@ -2022,7 +2473,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => requestChangeSiteStatus(s, 'מאושר')}
-                                    className="min-h-8 px-2.5 py-1 rounded-md bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 cursor-pointer"
+                                    className="min-h-8 px-2.5 py-1 rounded-md bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 cursor-pointer whitespace-nowrap shrink-0"
                                   >
                                     אשר לפרסום
                                   </button>
@@ -2031,7 +2482,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => requestChangeSiteStatus(s, 'ממתין')}
-                                    className="min-h-8 px-2.5 py-1 rounded-md border border-amber-400 bg-amber-50 text-amber-900 text-xs font-bold hover:bg-amber-100 cursor-pointer"
+                                    className="min-h-8 px-2.5 py-1 rounded-md border border-amber-400 bg-amber-50 text-amber-900 text-xs font-bold hover:bg-amber-100 cursor-pointer whitespace-nowrap shrink-0"
                                   >
                                     העבר להמתנה
                                   </button>
@@ -2040,7 +2491,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   type="button"
                                   onClick={() => handleOpenEditSite(s)}
                                   aria-label={`עריכת ${s.title}`}
-                                  className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-100 cursor-pointer"
+                                  className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-100 cursor-pointer whitespace-nowrap shrink-0"
                                 >
                                   <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
                                   <span>עריכה</span>
@@ -2049,14 +2500,15 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                                   type="button"
                                   onClick={() => requestDeleteSite(s)}
                                   aria-label={`מחיקת ${s.title}`}
-                                  className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-800 text-xs font-semibold hover:bg-rose-100 cursor-pointer"
+                                  className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-800 text-xs font-semibold hover:bg-rose-100 cursor-pointer whitespace-nowrap shrink-0"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                                   <span>מחיקה</span>
                                 </button>
                               </div>
                             </div>
-                          ))}
+                          );
+                          })}
                         </div>
                       )}
                     </div>
@@ -3272,6 +3724,76 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   }
                   className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-slate-950 text-xs sm:text-sm outline-none"
                 />
+              </div>
+
+              <div className="sm:col-span-12 p-3 rounded-xl border border-slate-200 bg-slate-50 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                <div className="sm:col-span-5 aspect-video rounded-lg overflow-hidden border border-slate-950 bg-slate-900">
+                  <SitePreviewMedia
+                    title={pendingCanvasSite.title || 'משחק חדש'}
+                    creatorsText={pendingCanvasSite.creatorFirstName}
+                    grade={pendingCanvasSite.className}
+                    primaryTag={pendingCanvasSite.tags[0] || 'משחק תחביב'}
+                    siteUrl={pendingCanvasSite.siteUrl}
+                    imageUrl={pendingCanvasSite.imageUrl}
+                    variant="admin-preview"
+                    onResolvedSourceChange={({ kind }) => setCanvasPreviewKind(kind)}
+                  />
+                </div>
+                <div className="sm:col-span-7 space-y-2">
+                  <div className="text-xs font-extrabold text-slate-900">
+                    תמונת תצוגה מקדימה (אופציונלי —{' '}
+                    {canvasPreviewKind === 'saved'
+                      ? 'קישור שמור'
+                      : canvasPreviewKind === 'screenshot'
+                        ? 'צילום מסך אוטומטי'
+                        : 'עטיפת נושא חכמה'}
+                    )
+                  </div>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    maxLength={500}
+                    value={pendingCanvasSite.imageUrl}
+                    onChange={(e) =>
+                      setPendingCanvasSite((prev) =>
+                        prev ? { ...prev, imageUrl: e.target.value } : prev
+                      )
+                    }
+                    placeholder="https://... (אופציונלי)"
+                    className="w-full min-h-8 px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-xs font-mono outline-none"
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={isGeneratingFormPreview || !pendingCanvasSite.siteUrl.trim()}
+                      onClick={() => handleApplyScreenshotToForm('canvasForm')}
+                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-800 text-xs font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                    >
+                      <Camera className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>צילום מסך</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isGeneratingFormPreview}
+                      onClick={() => handleGenerateAndUploadForForm('canvasForm')}
+                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-indigo-950 bg-indigo-600 text-white text-xs font-extrabold hover:bg-indigo-700 cursor-pointer disabled:opacity-50"
+                    >
+                      <CloudUpload className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>
+                        {isGeneratingFormPreview ? 'מייצר...' : 'עטיפת נושא לענן'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isGeneratingFormPreview}
+                      onClick={() => handleDownloadCoverForForm('canvasForm')}
+                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>PNG</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

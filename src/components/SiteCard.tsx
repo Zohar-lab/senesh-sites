@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   BookOpen,
   Compass,
@@ -11,7 +11,7 @@ import {
   Users,
 } from 'lucide-react';
 import { StudentSiteItem } from '../types/portal';
-import { formatDriveImage, getDriveThumbnailFallback } from '../utils/portalUtils';
+import { SitePreviewMedia } from './SitePreviewMedia';
 
 interface SiteCardProps {
   site: StudentSiteItem;
@@ -23,7 +23,6 @@ interface SiteCardProps {
 interface TagStyle {
   badgeBg: string;
   badgeText: string;
-  fallbackBg: string;
   hoverShadow: string;
   bottomAccent: string;
   icon: React.ReactNode;
@@ -35,7 +34,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-amber-400',
         badgeText: 'text-slate-950',
-        fallbackBg: 'from-amber-500 to-orange-700',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#f59e0b]',
         bottomAccent: 'bg-amber-400',
         icon: <Gamepad2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -44,7 +42,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-lime-400',
         badgeText: 'text-slate-950',
-        fallbackBg: 'from-emerald-600 to-teal-900',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#84cc16]',
         bottomAccent: 'bg-lime-400',
         icon: <Compass className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -53,7 +50,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-cyan-400',
         badgeText: 'text-slate-950',
-        fallbackBg: 'from-cyan-600 to-blue-900',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#06b6d4]',
         bottomAccent: 'bg-cyan-400',
         icon: <BookOpen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -62,7 +58,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-pink-500',
         badgeText: 'text-white',
-        fallbackBg: 'from-pink-600 to-rose-900',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#ec4899]',
         bottomAccent: 'bg-pink-500',
         icon: <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -71,7 +66,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-violet-500',
         badgeText: 'text-white',
-        fallbackBg: 'from-violet-600 to-indigo-950',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#8b5cf6]',
         bottomAccent: 'bg-violet-500',
         icon: <Megaphone className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -80,7 +74,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-blue-600',
         badgeText: 'text-white',
-        fallbackBg: 'from-blue-600 to-slate-950',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#2563eb]',
         bottomAccent: 'bg-blue-600',
         icon: <Cpu className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -89,7 +82,6 @@ function getTagStyle(tag: string): TagStyle {
       return {
         badgeBg: 'bg-slate-900',
         badgeText: 'text-white',
-        fallbackBg: 'from-slate-700 to-slate-900',
         hoverShadow: 'hover:shadow-[6px_6px_0px_#06b6d4]',
         bottomAccent: 'bg-cyan-500',
         icon: <Globe className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />,
@@ -103,81 +95,29 @@ export const SiteCard: React.FC<SiteCardProps> = ({
   averageRating = null,
   onOpen,
 }) => {
-  const primarySrc = formatDriveImage(site.imageUrl);
-  const secondarySrc = getDriveThumbnailFallback(site.imageUrl);
-
-  const [imgSrc, setImgSrc] = useState<string>(primarySrc);
-  const [triedFallback, setTriedFallback] = useState(false);
-  const [imageFailed, setImageFailed] = useState(!primarySrc);
-
-  useEffect(() => {
-    const nextPrimary = formatDriveImage(site.imageUrl);
-    setImgSrc(nextPrimary);
-    setTriedFallback(false);
-    setImageFailed(!nextPrimary);
-  }, [site.imageUrl]);
-
   const primaryTag = site.tags[0] || site.category || 'מידע';
   const tagStyle = getTagStyle(primaryTag);
   const creatorsText = site.creators.join(', ');
   const tagsLine = (site.tags.length > 0 ? site.tags : [primaryTag]).join(' · ');
-
-  const handleImageError = () => {
-    if (!triedFallback && secondarySrc && imgSrc !== secondarySrc) {
-      setTriedFallback(true);
-      setImgSrc(secondarySrc);
-      return;
-    }
-    setImageFailed(true);
-  };
 
   return (
     <article
       onClick={() => onOpen(site)}
       className={`group flex flex-col bg-white border-2 border-slate-950 rounded-xl overflow-hidden cursor-pointer shadow-[5px_5px_0px_#020617] transition-all duration-200 hover:-translate-y-1 ${tagStyle.hoverShadow} focus-within:ring-2 focus-within:ring-cyan-400 focus-within:ring-offset-2`}
     >
-      {/* 16:9 תמונת שער של האתר */}
+      {/* 16:9 תמונת שער או תצוגה מקדימה חכמה של האתר */}
       <div className="relative aspect-video w-full overflow-hidden bg-slate-900 border-b-2 border-slate-950">
-        {!imageFailed && imgSrc ? (
-          <img
-            src={imgSrc}
-            alt={`תצוגה מקדימה של האתר ${site.title}`}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            onError={handleImageError}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-          />
-        ) : (
-          <div
-            className={`w-full h-full bg-gradient-to-br ${tagStyle.fallbackBg} flex flex-col items-center justify-center p-4 text-white text-center select-none`}
-          >
-            <svg
-              viewBox="0 0 64 48"
-              className="w-12 h-9 mb-2 opacity-90"
-              fill="none"
-              aria-hidden="true"
-            >
-              <rect
-                x="4"
-                y="4"
-                width="56"
-                height="40"
-                rx="6"
-                stroke="currentColor"
-                strokeWidth="3"
-              />
-              <line x1="4" y1="14" x2="60" y2="14" stroke="currentColor" strokeWidth="2.5" />
-              <circle cx="11" cy="9" r="1.5" fill="currentColor" />
-              <circle cx="17" cy="9" r="1.5" fill="currentColor" />
-              <circle cx="23" cy="9" r="1.5" fill="currentColor" />
-              <rect x="12" y="21" width="22" height="6" rx="2" fill="currentColor" opacity="0.8" />
-              <rect x="12" y="31" width="40" height="5" rx="2" fill="currentColor" opacity="0.45" />
-            </svg>
-            <span className="font-display font-bold text-sm leading-tight line-clamp-1 max-w-[90%]">
-              {site.title}
-            </span>
-          </div>
-        )}
+        <SitePreviewMedia
+          title={site.title}
+          creatorsText={creatorsText}
+          grade={site.grade}
+          primaryTag={primaryTag}
+          siteUrl={site.siteUrl}
+          imageUrl={site.imageUrl}
+          variant="card"
+          imgClassName="transition-transform duration-300 group-hover:scale-[1.04]"
+          alt={`תצוגה מקדימה של האתר ${site.title}`}
+        />
 
         {/* תגית ראשית אחת בלבד על התמונה */}
         <div
