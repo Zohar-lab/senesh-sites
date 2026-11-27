@@ -15,12 +15,15 @@ import {
   Info,
   KeyRound,
   LogOut,
+  Maximize2,
   Pencil,
   Plus,
+  PlusCircle,
   RefreshCw,
   Search,
   Shield,
   ShieldCheck,
+  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -60,6 +63,7 @@ import {
   normalizeTags,
   parseCSV,
   parseCreatorsList,
+  sanitizeStudentDisplayName,
   SITE_TAGS,
 } from '../utils/portalUtils';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -107,6 +111,94 @@ const EMPTY_SITE_FORM: SiteFormState = {
   status: 'מאושר',
 };
 
+interface AdminPromptFormState {
+  promptName: string;
+  gameName: string;
+  creatorFirstName: string;
+  className: string;
+  productionStatus: PromptProductionStatus;
+  createdSiteUrl: string;
+  promptText: string;
+  isManualEdited: boolean;
+}
+
+const EMPTY_ADMIN_PROMPT_FORM: AdminPromptFormState = {
+  promptName: '',
+  gameName: '',
+  creatorFirstName: '',
+  className: '',
+  productionStatus: 'ממתין',
+  createdSiteUrl: '',
+  promptText: '',
+  isManualEdited: false,
+};
+
+const GEMINI_CANVAS_SUPER_ADMIN_URL = `https://gemini.google.com/canvas?authuser=${encodeURIComponent(
+  SUPER_ADMIN_EMAIL
+)}`;
+
+interface CanvasPendingSiteDraft {
+  sourcePrompt: SavedGamePromptItem;
+  title: string;
+  creatorFirstName: string;
+  className: string;
+  tags: SiteTag[];
+  description: string;
+  siteUrl: string;
+}
+
+function deriveDefaultTagsFromPrompt(promptText: string, gameTitle: string): SiteTag[] {
+  const combined = `${gameTitle} ${promptText}`;
+  const detected: SiteTag[] = [];
+  if (/מועצת|תלמידים|הנהג|קמפיין/.test(combined)) detected.push('מועצת תלמידים');
+  if (/חקר|מדע|חלל|טבע|חיות|סביבה/.test(combined)) detected.push('חקר');
+  if (/מחשב|רשת|קוד|תכנות|דיגיטל/.test(combined)) detected.push('מחשבים ורשת');
+  if (/מידע|אנציקלופד|מדריך|היסטור/.test(combined)) detected.push('מידע');
+  if (/חברה|המלצ|כיתה|קהילה/.test(combined)) detected.push('חברה');
+  if (!detected.includes('משחק תחביב')) {
+    detected.unshift('משחק תחביב');
+  }
+  return detected.slice(0, 3);
+}
+
+function deriveDefaultDescriptionFromPrompt(
+  prompt: SavedGamePromptItem,
+  overrideText?: string
+): string {
+  const summaryFromWizard = prompt.wizardState?.gameSummary?.trim();
+  if (summaryFromWizard) {
+    return summaryFromWizard.slice(0, 350);
+  }
+  const sourceText = (overrideText ?? prompt.promptText ?? '').trim();
+  if (sourceText) {
+    const cleanedLine = sourceText
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 15 && !l.startsWith('1.') && !l.startsWith('#'));
+    if (cleanedLine) {
+      return cleanedLine.slice(0, 260);
+    }
+  }
+  return `משחק אינטראקטיבי שיצר/ה ${prompt.creatorFirstName} (כיתה ${prompt.className}) מתוך מחולל המשחקים של חנה סנש.`;
+}
+
+function formatPromptDateTime(isoString?: string): string {
+  if (!isoString) return 'לא ידוע';
+  const ms = Date.parse(isoString);
+  if (Number.isNaN(ms)) return 'לא ידוע';
+  try {
+    return new Intl.DateTimeFormat('he-IL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(ms));
+  } catch {
+    return isoString.slice(0, 16).replace('T', ' ');
+  }
+}
+
 export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   isOpen,
   onClose,
@@ -127,7 +219,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   const [promptStatusFilter, setPromptStatusFilter] = useState<'הכל' | PromptProductionStatus>('הכל');
   const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
+  const [canvasLaunchedPromptId, setCanvasLaunchedPromptId] = useState<string | null>(null);
   const [promptUrlDrafts, setPromptUrlDrafts] = useState<Record<string, string>>({});
+  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
   const [editors, setEditors] = useState<AuthorizedEditor[]>([]);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
@@ -141,11 +235,21 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error';
     text: string;
+    actionLabel?: string;
+    onAction?: () => void;
   } | null>(null);
 
   const [showSiteForm, setShowSiteForm] = useState(false);
   const [editingSite, setEditingSite] = useState<StudentSiteItem | null>(null);
   const [siteForm, setSiteForm] = useState<SiteFormState>(EMPTY_SITE_FORM);
+
+  const [editingAdminPrompt, setEditingAdminPrompt] = useState<SavedGamePromptItem | null>(null);
+  const [adminPromptForm, setAdminPromptForm] =
+    useState<AdminPromptFormState>(EMPTY_ADMIN_PROMPT_FORM);
+  const [adminPromptModalError, setAdminPromptModalError] = useState<string | null>(null);
+
+  const [pendingCanvasSite, setPendingCanvasSite] = useState<CanvasPendingSiteDraft | null>(null);
+  const [canvasSiteModalError, setCanvasSiteModalError] = useState<string | null>(null);
 
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
@@ -202,6 +306,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       setAdminSites(sitesList);
       setEditors(editorsList);
       setAdminPrompts(promptsList);
+      setSelectedPromptIds((prev) =>
+        prev.filter((id) => promptsList.some((p) => p.id === id))
+      );
       setPromptUrlDrafts((prev) => {
         const next: Record<string, string> = {};
         for (const p of promptsList) {
@@ -233,6 +340,12 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     if (!isOpen) {
       setShowSecretJson(false);
       setCopiedSecret(false);
+      setEditingAdminPrompt(null);
+      setAdminPromptModalError(null);
+      setPendingCanvasSite(null);
+      setCanvasSiteModalError(null);
+      setCanvasLaunchedPromptId(null);
+      setSelectedPromptIds([]);
     }
   }, [isOpen]);
 
@@ -242,6 +355,12 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       if (e.key === 'Escape') {
         if (pendingConfirm) {
           setPendingConfirm(null);
+        } else if (pendingCanvasSite) {
+          setPendingCanvasSite(null);
+          setCanvasSiteModalError(null);
+        } else if (editingAdminPrompt) {
+          setEditingAdminPrompt(null);
+          setAdminPromptModalError(null);
         } else {
           onClose();
         }
@@ -249,7 +368,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [isOpen, pendingConfirm, onClose]);
+  }, [isOpen, pendingConfirm, pendingCanvasSite, editingAdminPrompt, onClose]);
 
   const activeFirebaseSecretConfig = useMemo(
     () => (isAuthorized ? getActiveFirebaseSecretConfig() : null),
@@ -333,6 +452,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       );
     });
   }, [adminPrompts, promptSearch, promptStatusFilter]);
+
+  const selectedPromptIdSet = useMemo(
+    () => new Set(selectedPromptIds),
+    [selectedPromptIds]
+  );
+
+  const allFilteredPromptsSelected = useMemo(
+    () =>
+      filteredAdminPrompts.length > 0 &&
+      filteredAdminPrompts.every((p) => selectedPromptIdSet.has(p.id)),
+    [filteredAdminPrompts, selectedPromptIdSet]
+  );
 
   if (!isOpen) return null;
 
@@ -671,6 +802,10 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
         isManualEdited: prompt.isManualEdited,
         wizardState: prompt.wizardState,
       });
+      setPromptUrlDrafts((prev) => ({
+        ...prev,
+        [prompt.id]: nextUrl,
+      }));
       await loadConsoleData();
       setStatusMessage({
         type: 'success',
@@ -691,6 +826,109 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     }
   };
 
+  const handleOpenEditAdminPrompt = (prompt: SavedGamePromptItem) => {
+    setAdminPromptModalError(null);
+    setEditingAdminPrompt(prompt);
+    setAdminPromptForm({
+      promptName: prompt.promptName || '',
+      gameName: prompt.gameName || '',
+      creatorFirstName: prompt.creatorFirstName || '',
+      className: prompt.className || '',
+      productionStatus: prompt.productionStatus === 'הופק' ? 'הופק' : 'ממתין',
+      createdSiteUrl: promptUrlDrafts[prompt.id] ?? prompt.createdSiteUrl ?? '',
+      promptText: prompt.promptText || '',
+      isManualEdited: Boolean(prompt.isManualEdited),
+    });
+  };
+
+  const handleSaveAdminPromptEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAuthorized || !editingAdminPrompt) return;
+
+    const cleanPromptName = adminPromptForm.promptName.trim().slice(0, 140);
+    const cleanGameName = adminPromptForm.gameName.trim().slice(0, 120);
+    const cleanCreatorFirstName = sanitizeStudentDisplayName(
+      adminPromptForm.creatorFirstName
+    ).slice(0, 35);
+    const cleanClassName = adminPromptForm.className.trim().slice(0, 20);
+    const cleanPromptText = adminPromptForm.promptText.trim().slice(0, 12000);
+    const rawSiteUrl = adminPromptForm.createdSiteUrl.trim();
+
+    if (!cleanPromptName) {
+      setAdminPromptModalError('אנא הזינו שם לפרומפט.');
+      return;
+    }
+    if (!cleanGameName) {
+      setAdminPromptModalError('אנא הזינו את שם המשחק.');
+      return;
+    }
+    if (!cleanCreatorFirstName) {
+      setAdminPromptModalError(
+        'אנא הזינו שם פרטי תקין ליוצר/ת (ללא שם משפחה וללא @).'
+      );
+      return;
+    }
+    if (!cleanClassName) {
+      setAdminPromptModalError('אנא הזינו כיתה.');
+      return;
+    }
+    if (!cleanPromptText) {
+      setAdminPromptModalError('תוכן הפרומפט אינו יכול להיות ריק.');
+      return;
+    }
+
+    let normalizedSiteUrl = '';
+    if (rawSiteUrl) {
+      const normalized = normalizeHttpUrl(rawSiteUrl).slice(0, 500);
+      if (!normalized) {
+        setAdminPromptModalError(
+          'הקישור לאתר שנוצר אינו תקין. ודאו שהוא מתחיל ב-https://.'
+        );
+        return;
+      }
+      normalizedSiteUrl = normalized;
+    }
+
+    const textChanged = cleanPromptText !== editingAdminPrompt.promptText.trim();
+    const nextIsManualEdited = adminPromptForm.isManualEdited || textChanged;
+
+    setIsWorking(true);
+    setAdminPromptModalError(null);
+    setStatusMessage(null);
+    try {
+      await updateGamePromptInFirestore(editingAdminPrompt.id, {
+        promptName: cleanPromptName,
+        gameName: cleanGameName,
+        creatorFirstName: cleanCreatorFirstName,
+        className: cleanClassName,
+        promptText: cleanPromptText,
+        productionStatus: adminPromptForm.productionStatus,
+        createdSiteUrl: normalizedSiteUrl,
+        isManualEdited: nextIsManualEdited,
+        wizardState: editingAdminPrompt.wizardState,
+      });
+
+      setPromptUrlDrafts((prev) => ({
+        ...prev,
+        [editingAdminPrompt.id]: normalizedSiteUrl,
+      }));
+      await loadConsoleData();
+      setEditingAdminPrompt(null);
+      setStatusMessage({
+        type: 'success',
+        text: `הפרומפט "${cleanPromptName}" ופרטיו המזהים נשמרו בהצלחה.`,
+      });
+    } catch (err) {
+      setAdminPromptModalError(
+        err instanceof Error && !err.message.startsWith('{')
+          ? err.message
+          : 'שמירת השינויים בפרומפט נכשלה. בדקו את השדות ונסו שוב.'
+      );
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
   const requestDeleteAdminPrompt = (prompt: SavedGamePromptItem) => {
     if (!isAuthorized) return;
     setPendingConfirm({
@@ -700,10 +938,98 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       isDestructive: true,
       execute: async () => {
         await deleteGamePromptInFirestore(prompt.id);
+        setSelectedPromptIds((prev) => prev.filter((id) => id !== prompt.id));
         await loadConsoleData();
         setStatusMessage({
           type: 'success',
           text: `הפרומפט "${prompt.promptName}" נמחק.`,
+        });
+      },
+    });
+  };
+
+  const toggleSelectPrompt = (promptId: string) => {
+    setSelectedPromptIds((prev) =>
+      prev.includes(promptId) ? prev.filter((id) => id !== promptId) : [...prev, promptId]
+    );
+  };
+
+  const toggleSelectAllFilteredPrompts = () => {
+    const filteredIds = filteredAdminPrompts.map((p) => p.id);
+    if (filteredIds.length === 0) return;
+    setSelectedPromptIds((prev) => {
+      const prevSet = new Set(prev);
+      const everyFilteredSelected = filteredIds.every((id) => prevSet.has(id));
+      if (everyFilteredSelected) {
+        return prev.filter((id) => !filteredIds.includes(id));
+      }
+      const next = new Set(prev);
+      for (const id of filteredIds) {
+        next.add(id);
+      }
+      return Array.from(next);
+    });
+  };
+
+  const requestDeleteSelectedPrompts = () => {
+    if (!isAuthorized || selectedPromptIds.length === 0) return;
+    const idsToDelete = [...selectedPromptIds];
+    const selectedItems = adminPrompts.filter((p) => idsToDelete.includes(p.id));
+    const sampleNames = selectedItems
+      .slice(0, 3)
+      .map((p) => `"${p.promptName}"`)
+      .join(', ');
+    const extraCount = Math.max(0, selectedItems.length - 3);
+    const summaryText = sampleNames
+      ? extraCount > 0
+        ? `${sampleNames} ועוד ${extraCount}`
+        : sampleNames
+      : `${idsToDelete.length} פריטים`;
+
+    setPendingConfirm({
+      title: `מחיקת ${idsToDelete.length} פרומטים מסומנים?`,
+      description: `הפריטים הבאים יימחקו לצמיתות ממסד הנתונים: ${summaryText}. פעולה זו אינה ניתנת לביטול.`,
+      confirmLabel: `מחיקת ${idsToDelete.length} פרומטים`,
+      isDestructive: true,
+      execute: async () => {
+        const results = await Promise.allSettled(
+          idsToDelete.map((id) => deleteGamePromptInFirestore(id))
+        );
+        const failedIds: string[] = [];
+        let deletedCount = 0;
+        let firstErrorMsg = '';
+        results.forEach((res, idx) => {
+          if (res.status === 'fulfilled') {
+            deletedCount++;
+          } else {
+            failedIds.push(idsToDelete[idx]);
+            if (!firstErrorMsg) {
+              const reason = res.reason;
+              firstErrorMsg =
+                reason instanceof Error && !reason.message.startsWith('{')
+                  ? reason.message
+                  : 'אין הרשאה או שהמחיקה נכשלה בחלק מהפריטים.';
+            }
+          }
+        });
+
+        setSelectedPromptIds(failedIds);
+        await loadConsoleData();
+
+        if (failedIds.length > 0) {
+          setStatusMessage({
+            type: 'error',
+            text:
+              deletedCount > 0
+                ? `נמחקו ${deletedCount} פרומטים, אך מחיקת ${failedIds.length} פריטים נכשלה: ${firstErrorMsg}`
+                : `מחיקת הפרומטים נכשלה: ${firstErrorMsg}`,
+          });
+          return;
+        }
+
+        setStatusMessage({
+          type: 'success',
+          text: `${deletedCount} פרומטים מסומנים נמחקו בהצלחה.`,
         });
       },
     });
@@ -734,6 +1060,220 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const openPendingCanvasSiteModal = (
+    prompt: SavedGamePromptItem,
+    overrides?: {
+      title?: string;
+      creatorFirstName?: string;
+      className?: string;
+      siteUrl?: string;
+      promptText?: string;
+    }
+  ) => {
+    if (!isSuperAdmin) return;
+    const resolvedTitle =
+      (overrides?.title ?? prompt.gameName ?? prompt.promptName ?? '').trim() ||
+      'משחק חדש';
+    const resolvedCreator =
+      (overrides?.creatorFirstName ?? prompt.creatorFirstName ?? '').trim() || 'תלמיד';
+    const resolvedClass = (overrides?.className ?? prompt.className ?? '').trim() || "ד'";
+    const resolvedUrl = (
+      overrides?.siteUrl ??
+      promptUrlDrafts[prompt.id] ??
+      prompt.createdSiteUrl ??
+      ''
+    ).trim();
+    const resolvedPromptText = overrides?.promptText ?? prompt.promptText;
+
+    setCanvasSiteModalError(null);
+    setPendingCanvasSite({
+      sourcePrompt: prompt,
+      title: resolvedTitle,
+      creatorFirstName: resolvedCreator,
+      className: resolvedClass,
+      tags: deriveDefaultTagsFromPrompt(resolvedPromptText, resolvedTitle),
+      description: deriveDefaultDescriptionFromPrompt(prompt, resolvedPromptText),
+      siteUrl: resolvedUrl,
+    });
+  };
+
+  const handleLaunchGeminiCanvas = async (
+    prompt: SavedGamePromptItem,
+    overrides?: {
+      title?: string;
+      creatorFirstName?: string;
+      className?: string;
+      siteUrl?: string;
+      promptText?: string;
+    }
+  ) => {
+    if (!isSuperAdmin) return;
+    const textToCopy = (overrides?.promptText ?? prompt.promptText ?? '').trim();
+
+    openPendingCanvasSiteModal(prompt, overrides);
+
+    try {
+      if (!textToCopy) {
+        throw new Error('empty-prompt');
+      }
+      await navigator.clipboard.writeText(textToCopy);
+      setCanvasLaunchedPromptId(prompt.id);
+      window.setTimeout(() => {
+        setCanvasLaunchedPromptId((curr) => (curr === prompt.id ? null : curr));
+      }, 3000);
+      setStatusMessage({
+        type: 'success',
+        text: `הפרומפט "${prompt.promptName}" הועתק ללוח ונפתח ב-Gemini Canvas בחשבון ${SUPER_ADMIN_EMAIL}. בסיום יצירת הקוד הדביקו את הקישור בחלון האישור כדי להוסיפו לממתינים.`,
+      });
+    } catch {
+      setCanvasSiteModalError(
+        'Gemini Canvas נפתח בחשבונך, אך הדפדפן חסם העתקה אוטומטית ללוח. העתיקו את טקסט הפרומפט ידנית.'
+      );
+    }
+  };
+
+  const togglePendingCanvasTag = (tag: SiteTag) => {
+    setPendingCanvasSite((prev) => {
+      if (!prev) return prev;
+      const nextTags = prev.tags.includes(tag)
+        ? prev.tags.filter((t) => t !== tag)
+        : [...prev.tags, tag];
+      return { ...prev, tags: nextTags };
+    });
+  };
+
+  const handleApproveAddCanvasSite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isSuperAdmin || !pendingCanvasSite) return;
+
+    const cleanTitle = pendingCanvasSite.title.trim().slice(0, 120);
+    const cleanCreator = sanitizeStudentDisplayName(
+      pendingCanvasSite.creatorFirstName
+    ).slice(0, 35);
+    const cleanClass = pendingCanvasSite.className.trim().slice(0, 30);
+    const cleanDescription = pendingCanvasSite.description.trim().slice(0, 1500);
+    const linkCheck = inspectGoogleSiteUrl(pendingCanvasSite.siteUrl, false);
+
+    if (!cleanTitle) {
+      setCanvasSiteModalError('יש להזין שם לאתר או למשחק.');
+      return;
+    }
+    if (!cleanCreator) {
+      setCanvasSiteModalError(
+        'אנא הזינו שם פרטי תקין ליוצר/ת (שם פרטי או כינוי בלבד, ללא @ וללא שם משפחה).'
+      );
+      return;
+    }
+    if (!cleanClass) {
+      setCanvasSiteModalError('יש להזין כיתה או שכבה של היוצר.');
+      return;
+    }
+    if (pendingCanvasSite.tags.length === 0) {
+      setCanvasSiteModalError('בחרו לפחות תווית קטגוריה אחת לאתר.');
+      return;
+    }
+    if (!linkCheck.isValid) {
+      setCanvasSiteModalError(
+        linkCheck.errorMessage ||
+          'יש להזין קישור תקין של האתר שנוצר (לדוגמה https://gemini.google.com/share/... או https://sites.google.com/...).'
+      );
+      return;
+    }
+
+    const duplicateSite = adminSites.find(
+      (s) => s.siteUrl.trim().toLowerCase() === linkCheck.normalizedUrl.toLowerCase()
+    );
+    if (duplicateSite) {
+      setCanvasSiteModalError(
+        `קישור זה כבר קיים ברשימת האתרים תחת "${duplicateSite.title}" (${duplicateSite.status}).`
+      );
+      return;
+    }
+
+    const source = pendingCanvasSite.sourcePrompt;
+    setIsWorking(true);
+    setCanvasSiteModalError(null);
+    setStatusMessage(null);
+
+    try {
+      await createSiteInFirestore({
+        title: cleanTitle,
+        creators: [cleanCreator],
+        creatorNote: `נוצר מתוך הפרומפט "${source.promptName}" של ${cleanCreator} (כיתה ${cleanClass}) דרך מחולל המשחקים ו-Gemini Canvas.`,
+        grade: cleanClass,
+        category: pendingCanvasSite.tags[0],
+        tags: pendingCanvasSite.tags,
+        isFeatured: false,
+        description:
+          cleanDescription ||
+          `משחק אינטראקטיבי שיצר/ה ${cleanCreator} (כיתה ${cleanClass}).`,
+        siteUrl: linkCheck.normalizedUrl,
+        imageUrl: '',
+        status: 'ממתין',
+      });
+
+      const updatedPromptText =
+        editingAdminPrompt?.id === source.id
+          ? adminPromptForm.promptText.trim() || source.promptText
+          : source.promptText;
+      const updatedPromptName =
+        editingAdminPrompt?.id === source.id
+          ? adminPromptForm.promptName.trim() || source.promptName
+          : source.promptName;
+
+      await updateGamePromptInFirestore(source.id, {
+        promptName: updatedPromptName,
+        gameName: cleanTitle,
+        creatorFirstName: cleanCreator,
+        className: cleanClass,
+        promptText: updatedPromptText,
+        productionStatus: 'הופק',
+        createdSiteUrl: linkCheck.normalizedUrl,
+        isManualEdited:
+          editingAdminPrompt?.id === source.id
+            ? adminPromptForm.isManualEdited ||
+              updatedPromptText !== source.promptText.trim()
+            : source.isManualEdited,
+        wizardState: source.wizardState,
+      });
+
+      setPromptUrlDrafts((prev) => ({
+        ...prev,
+        [source.id]: linkCheck.normalizedUrl,
+      }));
+      if (editingAdminPrompt?.id === source.id) {
+        setAdminPromptForm((prev) => ({
+          ...prev,
+          gameName: cleanTitle,
+          creatorFirstName: cleanCreator,
+          className: cleanClass,
+          productionStatus: 'הופק',
+          createdSiteUrl: linkCheck.normalizedUrl,
+        }));
+      }
+
+      await loadConsoleData();
+      setPendingCanvasSite(null);
+      setStatusMessage({
+        type: 'success',
+        text: `האתר "${cleanTitle}" עם פרטי היוצר ${cleanCreator} (${cleanClass}) נוסף בהצלחה לאתרים הממתינים לאישור!`,
+        actionLabel: 'צפה בממתינים לאישור',
+        onAction: () => {
+          setActiveTab('sites');
+          setStatusFilter('ממתין');
+        },
+      });
+    } catch (err) {
+      setCanvasSiteModalError(
+        err instanceof Error && !err.message.startsWith('{')
+          ? err.message
+          : 'הוספת האתר לרשימת הממתינים נכשלה. בדקו את הקישור והפרטים ונסו שוב.'
+      );
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   const requestAddEditor = (e: React.FormEvent) => {
@@ -872,7 +1412,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
           {statusMessage && (
             <div
               role={statusMessage.type === 'error' ? 'alert' : 'status'}
-              className={`flex items-start justify-between gap-3 p-3.5 rounded-xl border-2 text-sm ${
+              className={`flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border-2 text-sm ${
                 statusMessage.type === 'error'
                   ? 'bg-rose-50 border-rose-500 text-rose-950'
                   : 'bg-emerald-50 border-emerald-600 text-emerald-950'
@@ -886,14 +1426,28 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                 )}
                 <span>{statusMessage.text}</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setStatusMessage(null)}
-                aria-label="סגירת הודעה"
-                className="p-0.5 rounded hover:bg-black/5"
-              >
-                <X className="w-4 h-4" aria-hidden="true" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {statusMessage.actionLabel && statusMessage.onAction && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      statusMessage.onAction?.();
+                      setStatusMessage(null);
+                    }}
+                    className="min-h-8 px-3 py-1 rounded-lg border border-slate-950 bg-amber-300 hover:bg-amber-200 text-slate-950 text-xs font-extrabold whitespace-nowrap cursor-pointer"
+                  >
+                    {statusMessage.actionLabel}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setStatusMessage(null)}
+                  aria-label="סגירת הודעה"
+                  className="p-0.5 rounded hover:bg-black/5 cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -901,6 +1455,10 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
             <div className="rounded-2xl border-2 border-slate-950 bg-slate-50 p-6 sm:p-8 text-center space-y-4">
               <ShieldCheck className="w-11 h-11 text-blue-600 mx-auto" aria-hidden="true" />
               <div className="space-y-1.5 max-w-lg mx-auto">
+                <div className="inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-800">
+                  <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>סטטוס חיבור: לא מחובר לחשבון</span>
+                </div>
                 <h3 className="font-display text-xl font-extrabold text-slate-950">
                   התחברו עם חשבון Google הארגוני לניהול הפורטל
                 </h3>
@@ -908,37 +1466,52 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   התחברו באמצעות חשבון מנהל או חשבון מורשה עריכה, כדי לבדוק, לתייג, לבחור אתרים מומלצים לדף הראשי ולאשר אתרי תלמידים. לאורחים וצופים אין צורך בהתחברות.
                 </p>
               </div>
-              <div className="pt-1">
+              <div className="pt-1 space-y-2">
                 <GoogleSignInButton
                   onClick={handleSignInClick}
-                  disabled={isSigningIn}
-                  label={isSigningIn ? 'מתחבר לחשבון Google...' : 'התחברות עם Google'}
+                  disabled={false}
+                  label={isSigningIn ? 'פתח חלון התחברות Google בחזית מחדש' : 'התחברות עם Google'}
                 />
+                {isSigningIn && (
+                  <p className="text-xs font-bold text-blue-700">
+                    חלון ההתחברות של Google נפתח מעל חלון הדפדפן. אם אינכם רואים אותו, לחצו שוב כדי להעלותו לחזית.
+                  </p>
+                )}
               </div>
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-slate-50 border-2 border-slate-200">
+              <div
+                className={`flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl border-2 ${
+                  isAuthorized
+                    ? 'bg-emerald-50 border-emerald-500'
+                    : isCheckingAuth
+                      ? 'bg-slate-50 border-slate-300'
+                      : 'bg-rose-50 border-rose-400'
+                }`}
+              >
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="font-bold text-slate-900">מחובר כעת:</span>
-                  <span className="font-mono text-slate-700">{user.email}</span>
+                  <span className="font-extrabold text-slate-950">סטטוס חיבור:</span>
+                  <span className="font-mono font-bold text-slate-800" dir="ltr">
+                    {user.email}
+                  </span>
                   <span aria-hidden="true">·</span>
                   {isSuperAdmin ? (
-                    <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
+                    <span className="inline-flex items-center gap-1 font-extrabold text-emerald-800">
                       <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-                      <span>סופר אדמין (שליטה מלאה)</span>
+                      <span>מחובר כסופר אדמין (שליטה מלאה בענן)</span>
                     </span>
                   ) : isAuthorized ? (
-                    <span className="inline-flex items-center gap-1 font-bold text-blue-700">
+                    <span className="inline-flex items-center gap-1 font-extrabold text-blue-800">
                       <Shield className="w-4 h-4" aria-hidden="true" />
-                      <span>מורשה עריכה</span>
+                      <span>מחובר כמורשה עריכה בענן</span>
                     </span>
                   ) : isCheckingAuth ? (
-                    <span className="text-slate-600">בודק הרשאות...</span>
+                    <span className="text-slate-600 font-bold">בודק הרשאות...</span>
                   ) : (
                     <span className="inline-flex items-center gap-1 font-bold text-rose-700">
                       <AlertTriangle className="w-4 h-4" aria-hidden="true" />
-                      <span>ללא הרשאת עריכה ברשימה</span>
+                      <span>מחובר לחשבון, אך ללא הרשאת עריכה ברשימה</span>
                     </span>
                   )}
                 </div>
@@ -1011,7 +1584,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         }`}
                       >
                         <FileText className="w-4 h-4" aria-hidden="true" />
-                        <span>פרומטים מהמחולל ({adminPrompts.length})</span>
+                        <span>פרומטים בספרייה ({adminPrompts.length})</span>
                       </button>
 
                       <button
@@ -1492,6 +2065,21 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                   {/* תוכן טאב פרומטים מהמחולל (צפייה בכל פרומטי התלמידים) */}
                   {activeTab === 'prompts' && (
                     <div className="space-y-4">
+                      {isSuperAdmin && (
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 rounded-xl border-2 border-indigo-300 bg-indigo-50/80 text-indigo-950 text-xs sm:text-sm">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-indigo-700 shrink-0" aria-hidden="true" />
+                            <span>
+                              <strong>סופר אדמין פעיל</strong> ({' '}
+                              <span dir="ltr" className="font-mono font-bold">
+                                {SUPER_ADMIN_EMAIL}
+                              </span>{' '}
+                              ) — פתיחה ישירה של <strong>Gemini Canvas</strong> בחשבון זה והוספת התוצר לממתינים לאישור.
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2 text-xs font-bold tabular-nums">
                           {(
@@ -1544,56 +2132,174 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         </div>
                       ) : (
                         <div className="space-y-3">
+                          {/* סרגל בחירה מרובה ומחיקה */}
+                          <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50">
+                            <label className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-800 cursor-pointer select-none min-h-9">
+                              <input
+                                type="checkbox"
+                                checked={allFilteredPromptsSelected}
+                                onChange={toggleSelectAllFilteredPrompts}
+                                className="w-4 h-4 accent-slate-950 rounded cursor-pointer"
+                              />
+                              <span className="tabular-nums">
+                                {allFilteredPromptsSelected
+                                  ? `בטל סימון של כל המוצגים (${filteredAdminPrompts.length})`
+                                  : `סמן הכל בתצוגה (${filteredAdminPrompts.length})`}
+                              </span>
+                            </label>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              {selectedPromptIds.length > 0 ? (
+                                <>
+                                  <span className="text-xs font-extrabold text-rose-800 tabular-nums">
+                                    נבחרו {selectedPromptIds.length} למחיקה
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={isWorking}
+                                    onClick={() => setSelectedPromptIds([])}
+                                    className="min-h-8 px-2.5 py-1 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100 cursor-pointer whitespace-nowrap"
+                                  >
+                                    נקה בחירה
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isWorking}
+                                    onClick={requestDeleteSelectedPrompts}
+                                    className="min-h-8 inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-rose-700 bg-rose-600 text-white text-xs font-extrabold hover:bg-rose-700 cursor-pointer whitespace-nowrap tabular-nums"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                    <span>מחק מסומנים ({selectedPromptIds.length})</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-500">
+                                  סמנו תיבות בכרטיסיות כדי למחוק כמה פרומטים יחד
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
                           {filteredAdminPrompts.map((prompt) => {
                             const isExpanded = expandedPromptId === prompt.id;
+                            const isSelected = selectedPromptIdSet.has(prompt.id);
                             const urlDraft =
                               promptUrlDrafts[prompt.id] ?? prompt.createdSiteUrl ?? '';
+                            const createdLabel = formatPromptDateTime(prompt.createdAt);
+                            const updatedLabel = formatPromptDateTime(
+                              prompt.updatedAt || prompt.createdAt
+                            );
                             return (
                               <div
                                 key={prompt.id}
-                                className="p-4 rounded-xl border border-slate-200 bg-white space-y-3 hover:border-slate-400 transition-colors"
+                                className={`p-4 rounded-xl border space-y-3 transition-colors ${
+                                  isSelected
+                                    ? 'border-rose-400 bg-rose-50/40'
+                                    : 'border-slate-200 bg-white hover:border-slate-400'
+                                }`}
                               >
                                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                                  <div className="min-w-0 space-y-1">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="font-display font-extrabold text-slate-950">
-                                        {prompt.promptName}
-                                      </span>
-                                      <span
-                                        className={`text-xs font-extrabold px-2 py-0.5 rounded ${
-                                          prompt.productionStatus === 'הופק'
-                                            ? 'bg-emerald-100 text-emerald-900'
-                                            : 'bg-amber-100 text-amber-900'
-                                        }`}
-                                      >
-                                        סטטוס: {prompt.productionStatus}
-                                      </span>
-                                      {prompt.isManualEdited && (
-                                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-cyan-100 text-cyan-900">
-                                          נערך ידנית
+                                  <div className="flex items-start gap-3 min-w-0">
+                                    <label
+                                      className="min-w-8 min-h-8 -ms-1 flex items-center justify-center rounded-lg hover:bg-slate-100 cursor-pointer shrink-0 mt-0.5"
+                                      title={`סימון "${prompt.promptName}" למחיקה`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => toggleSelectPrompt(prompt.id)}
+                                        aria-label={`סימון הפרומפט ${prompt.promptName} למחיקה`}
+                                        className="w-4 h-4 accent-rose-600 rounded cursor-pointer"
+                                      />
+                                    </label>
+
+                                    <div className="min-w-0 space-y-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-display font-extrabold text-slate-950">
+                                          {prompt.promptName}
                                         </span>
-                                      )}
-                                    </div>
-                                    <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                      <span>
-                                        יוצר: <strong>{prompt.creatorFirstName}</strong>
-                                      </span>
-                                      <span aria-hidden="true">·</span>
-                                      <span>כיתה: {prompt.className}</span>
-                                      <span aria-hidden="true">·</span>
-                                      <span>משחק: {prompt.gameName}</span>
-                                      {prompt.ownerEmail && (
-                                        <>
-                                          <span aria-hidden="true">·</span>
-                                          <span dir="ltr" className="font-mono text-slate-500">
-                                            {prompt.ownerEmail}
+                                        <span
+                                          className={`text-xs font-extrabold px-2 py-0.5 rounded ${
+                                            prompt.productionStatus === 'הופק'
+                                              ? 'bg-emerald-100 text-emerald-900'
+                                              : 'bg-amber-100 text-amber-900'
+                                          }`}
+                                        >
+                                          סטטוס: {prompt.productionStatus}
+                                        </span>
+                                        {prompt.isManualEdited && (
+                                          <span className="text-xs font-bold px-2 py-0.5 rounded bg-cyan-100 text-cyan-900">
+                                            נערך ידנית
                                           </span>
-                                        </>
-                                      )}
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                        <span>
+                                          יוצר: <strong>{prompt.creatorFirstName}</strong>
+                                        </span>
+                                        <span aria-hidden="true">·</span>
+                                        <span>כיתה: {prompt.className}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span>משחק: {prompt.gameName}</span>
+                                        {prompt.ownerEmail && (
+                                          <>
+                                            <span aria-hidden="true">·</span>
+                                            <span dir="ltr" className="font-mono text-slate-500">
+                                              {prompt.ownerEmail}
+                                            </span>
+                                          </>
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 tabular-nums">
+                                        <span>נוצר: {createdLabel}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span>עודכן: {updatedLabel}</span>
+                                      </div>
                                     </div>
                                   </div>
 
                                   <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                    {isSuperAdmin && (
+                                      <a
+                                        href={GEMINI_CANVAS_SUPER_ADMIN_URL}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() => void handleLaunchGeminiCanvas(prompt)}
+                                        aria-label={`העתקת הפרומפט ופתיחה ב-Gemini Canvas עבור ${prompt.promptName}`}
+                                        className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-indigo-950 bg-indigo-600 text-white text-xs font-extrabold hover:bg-indigo-700 cursor-pointer whitespace-nowrap shrink-0"
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                                        <span>
+                                          {canvasLaunchedPromptId === prompt.id
+                                            ? 'הועתק ונפתח ב-Canvas'
+                                            : 'Gemini Canvas'}
+                                        </span>
+                                      </a>
+                                    )}
+
+                                    {isSuperAdmin && (
+                                      <button
+                                        type="button"
+                                        disabled={isWorking}
+                                        onClick={() => openPendingCanvasSiteModal(prompt)}
+                                        aria-label={`הוספת אתר עבור ${prompt.promptName} לאתרים הממתינים לאישור`}
+                                        className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-700 bg-amber-300 text-slate-950 text-xs font-extrabold hover:bg-amber-200 cursor-pointer whitespace-nowrap shrink-0"
+                                      >
+                                        <PlusCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                                        <span>הוסף לממתינים</span>
+                                      </button>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditAdminPrompt(prompt)}
+                                      aria-label={`עריכת פרומפט ופרטים מזהים של ${prompt.promptName}`}
+                                      className="min-h-8 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-950 bg-cyan-300 text-slate-950 text-xs font-extrabold hover:bg-cyan-200 cursor-pointer whitespace-nowrap shrink-0"
+                                    >
+                                      <Maximize2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                      <span>עריכת פרומפט</span>
+                                    </button>
+
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -1967,6 +2673,629 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
           </div>
         )}
       </div>
+
+      {/* חלון מוגדל לעריכת פרומפט ופרטים מזהים (בסגנון עורך המחולל) */}
+      {editingAdminPrompt && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-prompt-editor-title"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (e.target === e.currentTarget && !isWorking) {
+              setEditingAdminPrompt(null);
+              setAdminPromptModalError(null);
+            }
+          }}
+          className="fixed inset-0 z-[70] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+        >
+          <form
+            onSubmit={handleSaveAdminPromptEdit}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#101b22] border-2 border-lime-400 rounded-3xl max-w-5xl w-full h-[90vh] p-5 sm:p-6 shadow-[0_0_40px_rgba(34,211,238,0.22)] flex flex-col gap-4 text-slate-100"
+          >
+            {/* כותרת החלון */}
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3 shrink-0">
+              <div className="space-y-1">
+                <h3
+                  id="admin-prompt-editor-title"
+                  className="text-lg sm:text-2xl font-black text-lime-300 flex items-center gap-2"
+                >
+                  <Pencil className="w-5 h-5 shrink-0" aria-hidden="true" />
+                  <span>עריכת פרומפט ופרטים מזהים</span>
+                </h3>
+                <div className="text-xs sm:text-sm text-slate-300 flex flex-wrap items-center gap-x-2.5 gap-y-1 tabular-nums">
+                  <span>
+                    חשבונ/ית יוצר:{' '}
+                    <span dir="ltr" className="font-mono text-cyan-300">
+                      {editingAdminPrompt.ownerEmail || 'לא צוין'}
+                    </span>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>נוצר: {formatPromptDateTime(editingAdminPrompt.createdAt)}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    עודכן:{' '}
+                    {formatPromptDateTime(
+                      editingAdminPrompt.updatedAt || editingAdminPrompt.createdAt
+                    )}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {adminPromptForm.promptText
+                      ? adminPromptForm.promptText.split('\n').length
+                      : 0}{' '}
+                    שורות
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>{adminPromptForm.promptText.length} / 12,000 תווים</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {isSuperAdmin && (
+                  <>
+                    <a
+                      href={GEMINI_CANVAS_SUPER_ADMIN_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() =>
+                        void handleLaunchGeminiCanvas(editingAdminPrompt, {
+                          title:
+                            adminPromptForm.gameName || adminPromptForm.promptName,
+                          creatorFirstName: adminPromptForm.creatorFirstName,
+                          className: adminPromptForm.className,
+                          siteUrl: adminPromptForm.createdSiteUrl,
+                          promptText: adminPromptForm.promptText,
+                        })
+                      }
+                      className="min-h-9 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white border border-indigo-300 text-xs font-black cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>
+                        {canvasLaunchedPromptId === editingAdminPrompt.id
+                          ? 'הועתק ונפתח ב-Canvas!'
+                          : 'פתח ב-Gemini Canvas'}
+                      </span>
+                    </a>
+
+                    <button
+                      type="button"
+                      disabled={isWorking}
+                      onClick={() =>
+                        openPendingCanvasSiteModal(editingAdminPrompt, {
+                          title:
+                            adminPromptForm.gameName || adminPromptForm.promptName,
+                          creatorFirstName: adminPromptForm.creatorFirstName,
+                          className: adminPromptForm.className,
+                          siteUrl: adminPromptForm.createdSiteUrl,
+                          promptText: adminPromptForm.promptText,
+                        })
+                      }
+                      className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>הוסף לממתינים</span>
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleDownloadAdminPrompt({
+                    ...editingAdminPrompt,
+                    promptName: adminPromptForm.promptName || editingAdminPrompt.promptName,
+                    promptText: adminPromptForm.promptText,
+                  })}
+                  className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-600 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>הורד TXT</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isWorking}
+                  aria-label="סגירת חלון עריכת פרומפט"
+                  onClick={() => {
+                    setEditingAdminPrompt(null);
+                    setAdminPromptModalError(null);
+                  }}
+                  className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 inline-flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            {adminPromptModalError && (
+              <div
+                role="alert"
+                className="flex items-start justify-between gap-2 px-3.5 py-2.5 rounded-xl border border-rose-500 bg-rose-950/80 text-rose-100 text-xs sm:text-sm shrink-0"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{adminPromptModalError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAdminPromptModalError(null)}
+                  aria-label="סגירת שגיאה"
+                  className="p-0.5 rounded hover:bg-white/10 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            )}
+
+            {/* פרטים מזהים וסטטוס */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 bg-[#0b1116] border border-slate-800 rounded-2xl p-3.5 shrink-0">
+              <div className="sm:col-span-4 space-y-1">
+                <label
+                  htmlFor="admin-edit-prompt-name"
+                  className="block text-xs font-bold text-cyan-300"
+                >
+                  שם הפרומפט *
+                </label>
+                <input
+                  id="admin-edit-prompt-name"
+                  type="text"
+                  required
+                  maxLength={140}
+                  value={adminPromptForm.promptName}
+                  onChange={(e) =>
+                    setAdminPromptForm((prev) => ({ ...prev, promptName: e.target.value }))
+                  }
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl bg-[#101b22] border border-slate-700 focus:border-cyan-400 text-sm font-bold text-white outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-4 space-y-1">
+                <label
+                  htmlFor="admin-edit-game-name"
+                  className="block text-xs font-bold text-cyan-300"
+                >
+                  שם המשחק *
+                </label>
+                <input
+                  id="admin-edit-game-name"
+                  type="text"
+                  required
+                  maxLength={120}
+                  value={adminPromptForm.gameName}
+                  onChange={(e) =>
+                    setAdminPromptForm((prev) => ({ ...prev, gameName: e.target.value }))
+                  }
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl bg-[#101b22] border border-slate-700 focus:border-cyan-400 text-sm font-bold text-white outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-2 space-y-1">
+                <label
+                  htmlFor="admin-edit-creator-name"
+                  className="block text-xs font-bold text-cyan-300"
+                >
+                  שם פרטי *
+                </label>
+                <input
+                  id="admin-edit-creator-name"
+                  type="text"
+                  required
+                  maxLength={35}
+                  value={adminPromptForm.creatorFirstName}
+                  onChange={(e) =>
+                    setAdminPromptForm((prev) => ({
+                      ...prev,
+                      creatorFirstName: e.target.value,
+                    }))
+                  }
+                  placeholder="ללא שם משפחה"
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl bg-[#101b22] border border-slate-700 focus:border-cyan-400 text-sm font-bold text-white outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-2 space-y-1">
+                <label
+                  htmlFor="admin-edit-class-name"
+                  className="block text-xs font-bold text-cyan-300"
+                >
+                  כיתה *
+                </label>
+                <input
+                  id="admin-edit-class-name"
+                  type="text"
+                  required
+                  maxLength={20}
+                  value={adminPromptForm.className}
+                  onChange={(e) =>
+                    setAdminPromptForm((prev) => ({ ...prev, className: e.target.value }))
+                  }
+                  placeholder="ד'2"
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl bg-[#101b22] border border-slate-700 focus:border-cyan-400 text-sm font-bold text-white outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-3 space-y-1">
+                <label
+                  htmlFor="admin-edit-status"
+                  className="block text-xs font-bold text-cyan-300"
+                >
+                  סטטוס הפקה
+                </label>
+                <select
+                  id="admin-edit-status"
+                  value={adminPromptForm.productionStatus}
+                  onChange={(e) =>
+                    setAdminPromptForm((prev) => ({
+                      ...prev,
+                      productionStatus: e.target.value === 'הופק' ? 'הופק' : 'ממתין',
+                    }))
+                  }
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl bg-[#101b22] border border-slate-700 focus:border-cyan-400 text-sm font-bold text-white outline-none"
+                >
+                  <option value="ממתין">ממתין להפקה</option>
+                  <option value="הופק">הופק לאתר</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-9 space-y-1">
+                <label
+                  htmlFor="admin-edit-site-url"
+                  className="block text-xs font-bold text-cyan-300"
+                >
+                  קישור לאתר שנוצר (אופציונלי)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="admin-edit-site-url"
+                    type="url"
+                    dir="ltr"
+                    maxLength={500}
+                    value={adminPromptForm.createdSiteUrl}
+                    onChange={(e) =>
+                      setAdminPromptForm((prev) => ({
+                        ...prev,
+                        createdSiteUrl: e.target.value,
+                      }))
+                    }
+                    placeholder="https://sites.google.com/..."
+                    className="flex-1 min-h-9 px-3 py-1.5 rounded-xl bg-[#101b22] border border-slate-700 focus:border-cyan-400 text-xs sm:text-sm font-mono text-white outline-none"
+                  />
+                  {normalizeHttpUrl(adminPromptForm.createdSiteUrl) && (
+                    <a
+                      href={normalizeHttpUrl(adminPromptForm.createdSiteUrl)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-9 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-cyan-400/60 bg-cyan-400/15 text-cyan-300 text-xs font-bold hover:bg-cyan-400/25 shrink-0"
+                    >
+                      <span>בדיקת קישור</span>
+                      <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* עורך טקסט הפרומפט המוגדל */}
+            <div className="flex-1 min-h-0 flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label
+                  htmlFor="admin-edit-prompt-text"
+                  className="text-xs sm:text-sm font-black text-lime-300"
+                >
+                  טקסט הפרומפט המלא *
+                </label>
+                <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={adminPromptForm.isManualEdited}
+                    onChange={(e) =>
+                      setAdminPromptForm((prev) => ({
+                        ...prev,
+                        isManualEdited: e.target.checked,
+                      }))
+                    }
+                    className="w-4 h-4 accent-cyan-400 rounded cursor-pointer"
+                  />
+                  <span>סמן כנערך ידנית</span>
+                </label>
+              </div>
+              <textarea
+                id="admin-edit-prompt-text"
+                required
+                maxLength={12000}
+                value={adminPromptForm.promptText}
+                onChange={(e) =>
+                  setAdminPromptForm((prev) => ({
+                    ...prev,
+                    promptText: e.target.value,
+                    isManualEdited: true,
+                  }))
+                }
+                className="flex-1 min-h-[220px] w-full p-4 sm:p-5 rounded-2xl bg-[#0b1116] border-2 border-slate-700 focus:border-cyan-400 text-slate-100 text-sm sm:text-base leading-relaxed focus:outline-none resize-none"
+              />
+            </div>
+
+            {/* סרגל שמירה תחתון */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1 shrink-0">
+              <p className="text-xs text-slate-400">
+                השינויים יישמרו ב-Firestore ויתעדכנו גם בספריית התלמיד/ה (שם פרטי ללא שם משפחה).
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isWorking}
+                  onClick={() => {
+                    setEditingAdminPrompt(null);
+                    setAdminPromptModalError(null);
+                  }}
+                  className="min-h-10 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-bold cursor-pointer"
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  disabled={isWorking}
+                  className="min-h-10 inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-lime-400 hover:bg-lime-300 text-slate-950 border-2 border-slate-950 text-xs sm:text-sm font-black shadow-[3px_3px_0px_#06b6d4] cursor-pointer disabled:opacity-60"
+                >
+                  <Check className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>{isWorking ? 'שומר שינויים...' : 'שמירת שינויים בפרומפט'}</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* חלון אישור הוספת אתר מתוך Gemini Canvas לרשימת הממתינים לאישור (סופר אדמין בלבד) */}
+      {pendingCanvasSite && isSuperAdmin && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="canvas-pending-site-title"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (e.target === e.currentTarget && !isWorking) {
+              setPendingCanvasSite(null);
+              setCanvasSiteModalError(null);
+            }
+          }}
+          className="fixed inset-0 z-[80] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+        >
+          <form
+            onSubmit={handleApproveAddCanvasSite}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white border-2 border-slate-950 rounded-2xl shadow-[8px_8px_0px_#4f46e5] p-5 sm:p-6 space-y-4 text-slate-900"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 text-xs font-extrabold text-indigo-700">
+                  <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>סיום יצירת הקוד ב-Gemini Canvas · סופר אדמין</span>
+                </div>
+                <h3
+                  id="canvas-pending-site-title"
+                  className="font-display text-lg sm:text-xl font-black text-slate-950"
+                >
+                  הוספת האתר שנוצר לרשימת הממתינים לאישור
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600">
+                  פרטי יוצר הפרומפט נטענו אוטומטית. הדביקו את הקישור שהופק ב-Gemini Canvas ואשרו את ההוספה לתור הממתינים לאישור.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isWorking}
+                aria-label="סגירת חלון הוספה לממתינים"
+                onClick={() => {
+                  setPendingCanvasSite(null);
+                  setCanvasSiteModalError(null);
+                }}
+                className="w-9 h-9 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 inline-flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            {canvasSiteModalError && (
+              <div
+                role="alert"
+                className="flex items-start justify-between gap-2 p-3 rounded-xl border border-rose-400 bg-rose-50 text-rose-950 text-xs sm:text-sm"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{canvasSiteModalError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCanvasSiteModalError(null)}
+                  aria-label="סגירת הודעת שגיאה"
+                  className="p-0.5 rounded hover:bg-black/5 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div className="sm:col-span-12 space-y-1">
+                <label
+                  htmlFor="canvas-pending-site-url"
+                  className="block text-xs font-extrabold text-slate-800"
+                >
+                  קישור האתר / שיתוף שנוצר ב-Gemini Canvas *
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="canvas-pending-site-url"
+                    type="url"
+                    dir="ltr"
+                    required
+                    maxLength={500}
+                    value={pendingCanvasSite.siteUrl}
+                    onChange={(e) =>
+                      setPendingCanvasSite((prev) =>
+                        prev ? { ...prev, siteUrl: e.target.value } : prev
+                      )
+                    }
+                    placeholder="https://gemini.google.com/share/... או https://sites.google.com/..."
+                    className="flex-1 min-h-10 px-3 py-2 rounded-xl border-2 border-slate-300 focus:border-indigo-600 bg-slate-50 text-xs sm:text-sm font-mono outline-none"
+                  />
+                  {normalizeHttpUrl(pendingCanvasSite.siteUrl) && (
+                    <a
+                      href={normalizeHttpUrl(pendingCanvasSite.siteUrl)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-10 inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-bold hover:bg-slate-100 shrink-0"
+                    >
+                      <span>בדיקה</span>
+                      <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              <div className="sm:col-span-6 space-y-1">
+                <label
+                  htmlFor="canvas-pending-site-title"
+                  className="block text-xs font-bold text-slate-700"
+                >
+                  שם האתר / המשחק *
+                </label>
+                <input
+                  id="canvas-pending-site-title"
+                  type="text"
+                  required
+                  maxLength={120}
+                  value={pendingCanvasSite.title}
+                  onChange={(e) =>
+                    setPendingCanvasSite((prev) =>
+                      prev ? { ...prev, title: e.target.value } : prev
+                    )
+                  }
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl border border-slate-300 focus:border-slate-950 text-sm font-bold outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-3 space-y-1">
+                <label
+                  htmlFor="canvas-pending-site-creator"
+                  className="block text-xs font-bold text-slate-700"
+                >
+                  יוצר/ת הפרומפט *
+                </label>
+                <input
+                  id="canvas-pending-site-creator"
+                  type="text"
+                  required
+                  maxLength={35}
+                  value={pendingCanvasSite.creatorFirstName}
+                  onChange={(e) =>
+                    setPendingCanvasSite((prev) =>
+                      prev ? { ...prev, creatorFirstName: e.target.value } : prev
+                    )
+                  }
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl border border-slate-300 focus:border-slate-950 text-sm font-bold outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-3 space-y-1">
+                <label
+                  htmlFor="canvas-pending-site-class"
+                  className="block text-xs font-bold text-slate-700"
+                >
+                  כיתה / שכבה *
+                </label>
+                <input
+                  id="canvas-pending-site-class"
+                  type="text"
+                  required
+                  maxLength={30}
+                  value={pendingCanvasSite.className}
+                  onChange={(e) =>
+                    setPendingCanvasSite((prev) =>
+                      prev ? { ...prev, className: e.target.value } : prev
+                    )
+                  }
+                  className="w-full min-h-9 px-3 py-1.5 rounded-xl border border-slate-300 focus:border-slate-950 text-sm font-bold outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-12 space-y-1.5">
+                <span className="block text-xs font-bold text-slate-700">
+                  תוויות האתר *
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {SITE_TAGS.map((tag) => {
+                    const active = pendingCanvasSite.tags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => togglePendingCanvasTag(tag)}
+                        className={`min-h-8 px-3 py-1 rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-slate-950 text-lime-300 border-slate-950'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:border-slate-400'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="sm:col-span-12 space-y-1">
+                <label
+                  htmlFor="canvas-pending-site-desc"
+                  className="block text-xs font-bold text-slate-700"
+                >
+                  תיאור קצר לכרטיס האתר
+                </label>
+                <textarea
+                  id="canvas-pending-site-desc"
+                  rows={2}
+                  maxLength={1500}
+                  value={pendingCanvasSite.description}
+                  onChange={(e) =>
+                    setPendingCanvasSite((prev) =>
+                      prev ? { ...prev, description: e.target.value } : prev
+                    )
+                  }
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-slate-950 text-xs sm:text-sm outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+              <span className="text-xs font-bold text-amber-800">
+                סטטוס שמירה: ממתין לאישור (לא יפורסם לציבור לפני אישורכם)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isWorking}
+                  onClick={() => {
+                    setPendingCanvasSite(null);
+                    setCanvasSiteModalError(null);
+                  }}
+                  className="min-h-10 px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs sm:text-sm font-bold hover:bg-slate-100 cursor-pointer"
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  disabled={isWorking}
+                  className="min-h-10 inline-flex items-center gap-1.5 px-5 py-2 rounded-xl border-2 border-slate-950 bg-lime-400 hover:bg-lime-300 text-slate-950 text-xs sm:text-sm font-black shadow-[3px_3px_0px_#4f46e5] cursor-pointer disabled:opacity-60"
+                >
+                  <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>{isWorking ? 'מוסיף לממתינים...' : 'אשר והוסף לממתינים לאישור'}</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

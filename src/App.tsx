@@ -310,11 +310,16 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsAdminOpen(true)}
-              aria-label="ניהול הפורטל"
-              className="min-h-10 inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-lg border-2 border-cyan-400 bg-slate-900 text-cyan-300 text-xs sm:text-sm font-bold hover:bg-cyan-400 hover:text-slate-950 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+              aria-label={authUser ? `ניהול הפורטל (מחובר: ${authUser.email || ''})` : 'ניהול הפורטל'}
+              title={authUser ? `מחובר כעת: ${authUser.email || ''}` : 'התחברות וניהול הפורטל'}
+              className={`min-h-10 inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-lg border-2 text-xs sm:text-sm font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                authUser
+                  ? 'border-emerald-400 bg-emerald-950/80 text-emerald-300 hover:bg-emerald-400 hover:text-slate-950 focus-visible:outline-emerald-300'
+                  : 'border-cyan-400 bg-slate-900 text-cyan-300 hover:bg-cyan-400 hover:text-slate-950 focus-visible:outline-cyan-300'
+              }`}
             >
               <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>ניהול</span>
+              <span>{authUser ? 'ניהול · מחובר' : 'ניהול'}</span>
             </button>
 
             <button

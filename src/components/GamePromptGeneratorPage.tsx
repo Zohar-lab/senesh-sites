@@ -7,6 +7,8 @@ import {
   BookOpen,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Cloud,
   Copy,
   Download,
@@ -18,7 +20,9 @@ import {
   Link2,
   LogIn,
   LogOut,
+  Maximize2,
   MonitorPlay,
+  MoreHorizontal,
   Pause,
   Pencil,
   Play,
@@ -29,6 +33,7 @@ import {
   Save,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Upload,
@@ -204,6 +209,185 @@ function buildFinalPromptText(state: GamePromptWizardState): string {
 - תצוגה עילית (HUD): הצג בזמן אמת ניקוד, לבבות חיים ורמת קושי.`;
 }
 
+function cleanPlaceholder(value: string): string {
+  const trimmed = value.trim();
+  if (/^\[.+\]$/.test(trimmed)) return '';
+  return trimmed;
+}
+
+/**
+ * פענוח פרומפט טקסטואלי (מבני או חופשי) בחזרה לשדות 7 השלבים של האשף
+ */
+function parsePromptTextIntoWizardState(
+  rawText: string,
+  fallbackGameName?: string
+): { wizardState: GamePromptWizardState; matchedSections: number } {
+  const base = createDefaultWizardState();
+  const text = (rawText || '').replace(/\r\n/g, '\n').trim();
+  let matchedSections = 0;
+
+  if (!text) {
+    if (fallbackGameName?.trim()) {
+      base.gameName = fallbackGameName.trim();
+    }
+    return { wizardState: base, matchedSections: 0 };
+  }
+
+  // שלב 1: שם המשחק ומהותו
+  const titleMatch =
+    text.match(/בשם\s*"([^"]+)"/) ||
+    text.match(/משחק\s+בשם\s*([^\n."]+)/) ||
+    text.match(/שם המשחק\s*:\s*([^\n]+)/);
+  if (titleMatch?.[1]) {
+    const clean = cleanPlaceholder(titleMatch[1]);
+    if (clean) {
+      base.gameName = clean;
+      matchedSections++;
+    }
+  } else if (fallbackGameName?.trim()) {
+    base.gameName = fallbackGameName.trim();
+  }
+
+  const summaryMatch = text.match(/מהות המשחק\s*:\s*([^\n]+)/);
+  if (summaryMatch?.[1]) {
+    const clean = cleanPlaceholder(summaryMatch[1]);
+    if (clean) {
+      base.gameSummary = clean;
+      matchedSections++;
+    }
+  }
+
+  // שלב 2: השראה מהעולם האמיתי
+  const realWorldLineMatch = text.match(/בסיס בעולם האמיתי\s*:\s*([^\n]+)/);
+  if (realWorldLineMatch?.[1]) {
+    const line = realWorldLineMatch[1].trim();
+    matchedSections++;
+    if (line.includes('רעיון מקורי')) {
+      base.isRealWorldBased = 'no';
+    } else {
+      const rwMatch = line.match(
+        /מבוסס על המשחק\s*"([^"]*)"\s*עם שדרוג דיגיטלי\s*:\s*(.+)$/
+      );
+      if (rwMatch) {
+        base.isRealWorldBased = 'yes';
+        base.realWorldGame = cleanPlaceholder(rwMatch[1] || '');
+        base.digitalTwist = cleanPlaceholder(rwMatch[2] || '');
+      } else {
+        base.isRealWorldBased = 'yes';
+        base.realWorldGame = line;
+      }
+    }
+  }
+
+  // שלב 3: ממדים וזווית מצלמה
+  const dimMatch = text.match(/\b(2D|3D)\b/i);
+  if (dimMatch?.[1]) {
+    base.dimension = dimMatch[1].toUpperCase() === '3D' ? '3D' : '2D';
+    matchedSections++;
+  }
+  for (const cam of CAMERA_VIEWS) {
+    if (text.includes(cam)) {
+      base.cameraView = cam;
+      break;
+    }
+  }
+
+  // שלב 4: קונפליקט, ניצחון ופסילה
+  const winMatch = text.match(/(?:מטרת השחקן וניצחון|איך מנצחים|ניצחון)\s*:\s*([^\n]+)/);
+  if (winMatch?.[1]) {
+    const clean = cleanPlaceholder(winMatch[1]);
+    if (clean) {
+      base.winCondition = clean;
+      matchedSections++;
+    }
+  }
+
+  const conflictMatch = text.match(/(?:הקונפליקט המרכזי|קונפליקט|מכשולים)\s*:\s*([^\n]+)/);
+  if (conflictMatch?.[1]) {
+    const clean = cleanPlaceholder(conflictMatch[1]);
+    if (clean) {
+      base.conflictObstacle = clean;
+      matchedSections++;
+    }
+  }
+
+  const loseMatch = text.match(/(?:תנאי פסילה|מתי נפסלים|פסילה)\s*:\s*([^\n]+)/);
+  if (loseMatch?.[1]) {
+    const clean = cleanPlaceholder(loseMatch[1]);
+    if (clean) {
+      base.loseCondition = clean;
+      matchedSections++;
+    }
+  }
+
+  // שלב 5: רמות מורכבות
+  const easyMatch = text.match(/(?:\*\s*)?קל\s*:\s*([^\n]+)/);
+  if (easyMatch?.[1]) {
+    base.easyLevel = easyMatch[1].trim();
+    matchedSections++;
+  }
+  const medMatch = text.match(/(?:\*\s*)?בינוני\s*:\s*([^\n]+)/);
+  if (medMatch?.[1]) {
+    base.mediumLevel = medMatch[1].trim();
+  }
+  const hardMatch = text.match(/(?:\*\s*)?קשה\s*:\s*([^\n]+)/);
+  if (hardMatch?.[1]) {
+    base.hardLevel = hardMatch[1].trim();
+  }
+
+  // שלב 6: גרפיקה ועיצוב
+  for (const style of ART_STYLES) {
+    if (text.includes(style) || (style.includes('פיקסל') && text.includes('פיקסל'))) {
+      base.artStyle = style;
+      break;
+    }
+  }
+  const visualsMatch = text.match(
+    /עיצוב דמויות ורקע\s*:\s*(.+?)(?:\.\s*הוסף אנימציות|\n|$)/
+  );
+  if (visualsMatch?.[1]) {
+    const clean = cleanPlaceholder(visualsMatch[1]);
+    if (clean) {
+      base.characterAndBg = clean;
+      matchedSections++;
+    }
+  }
+
+  // שלב 7: מקשי שליטה והדרכה
+  const tutorialBlockMatch = text.match(
+    /הסבר על המקשים\s*\(([^)]+)\)\s*וטקסט ההסבר\s*:\s*"([^"]*)"/
+  );
+  if (tutorialBlockMatch) {
+    if (tutorialBlockMatch[1]?.trim()) {
+      base.controls = tutorialBlockMatch[1].trim();
+    }
+    if (tutorialBlockMatch[2]?.trim()) {
+      base.tutorialText = tutorialBlockMatch[2].trim();
+    }
+    matchedSections++;
+  } else {
+    const controlsMatch = text.match(/(?:מקשי שליטה|מקשים|שליטה)\s*:\s*([^\n]+)/);
+    if (controlsMatch?.[1]) {
+      base.controls = controlsMatch[1].trim();
+    }
+    const tutMatch = text.match(/(?:טקסט הדרכה|הדרכה)\s*:\s*([^\n]+)/);
+    if (tutMatch?.[1]) {
+      base.tutorialText = tutMatch[1].trim();
+    }
+  }
+
+  // השלמת חסרים אם הפרומפט חופשי ולא בפורמט המובנה
+  if (!base.gameName) {
+    const firstLine = text.split('\n')[0]?.replace(/^["#\s*-]+|["\s.]+$/g, '') || '';
+    base.gameName = firstLine.slice(0, 60) || fallbackGameName?.trim() || 'משחק מיובא';
+  }
+  if (!base.gameSummary) {
+    base.gameSummary = text.slice(0, 550);
+  }
+
+  return { wizardState: base, matchedSections };
+}
+
 function loadLocalPrompts(): SavedGamePromptItem[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -254,6 +438,25 @@ function formatHebrewDate(isoString: string): string {
   }
 }
 
+function formatAuthError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  const lower = msg.toLowerCase();
+  if (lower.includes('popup-blocked')) {
+    return 'הדפדפן חסם את חלון ההתחברות הקופץ. אפשרו חלונות קופצים עבור אתר זה ולחצו על "פתח חלון התחברות בחזית".';
+  }
+  if (lower.includes('popup-closed-by-user')) {
+    return 'חלון ההתחברות של Google נסגר לפני השלמת הכניסה. לחצו למטה כדי לפתוח אותו מחדש.';
+  }
+  if (lower.includes('cancelled-popup-request')) {
+    return 'נפתחה בקשת התחברות חדשה. השלימו את הכניסה בחלון החדש.';
+  }
+  if (lower.includes('unauthorized-domain')) {
+    const host = typeof window !== 'undefined' ? window.location.hostname : '';
+    return `הדומיין "${host}" עדיין לא מאושר בהגדרות Firebase Authentication (Authorized domains).`;
+  }
+  return msg || 'אירעה שגיאה בהתחברות לחשבון Google.';
+}
+
 function formatFirestoreWriteError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err || '');
   let detail = raw;
@@ -288,6 +491,8 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const confettiRafRef = useRef<number | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const expandedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const signInAttemptRef = useRef<number>(0);
 
   const [wizard, setWizard] = useState<GamePromptWizardState>(() =>
     createDefaultWizardState()
@@ -295,6 +500,15 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const [isManualEdited, setIsManualEdited] = useState(false);
   const [manualPromptText, setManualPromptText] = useState('');
   const [activeLoadedPromptId, setActiveLoadedPromptId] = useState<string | null>(null);
+
+  // חלונות ייעודיים להפחתת עומס כפתורים + חלון עריכה מוגדל + חלון התחברות בחזית
+  const [isExpandedEditorOpen, setIsExpandedEditorOpen] = useState(false);
+  const [isWizardToolsOpen, setIsWizardToolsOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
+  const [showStep1Ideas, setShowStep1Ideas] = useState(false);
+  const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
+  const [authDialogError, setAuthDialogError] = useState<string | null>(null);
 
   // שמירה בענן (Firestore) למשתמשים מחוברים + גיבוי/מצב אורח במכשיר
   const [cloudPrompts, setCloudPrompts] = useState<SavedGamePromptItem[]>([]);
@@ -321,6 +535,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const [libraryStatusFilter, setLibraryStatusFilter] = useState<'הכל' | PromptProductionStatus>(
     'הכל'
   );
+  const [expandedMoreActionsId, setExpandedMoreActionsId] = useState<string | null>(null);
 
   // טופס שמירת הפרומפט הנוכחי
   const [libraryPromptName, setLibraryPromptName] = useState('');
@@ -361,6 +576,15 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const userEmail = (user?.email || '').trim().toLowerCase();
   const isCloudUser = Boolean(isFirebaseConfigured && user?.uid && userEmail);
 
+  // סגירה אוטומטית של חלון ההתחברות ברגע שהמשתמש חובר בהצלחה
+  useEffect(() => {
+    if (isCloudUser && isAuthDialogOpen && !isSigningIn) {
+      setIsAuthDialogOpen(false);
+      setAuthDialogError(null);
+      showToast(`מחובר כעת לענן (${userEmail})!`);
+    }
+  }, [isCloudUser, isAuthDialogOpen, isSigningIn, userEmail]);
+
   // עדכון שם פרטי אוטומטי מהמשתמש המחובר
   useEffect(() => {
     const first = extractFirstNameFromUser(user);
@@ -368,6 +592,15 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
       setCreatorFirstName(first);
     }
   }, [user, creatorFirstName]);
+
+  // מיקוד אוטומטי בתיבת העריכה המוגדלת עם פתיחתה
+  useEffect(() => {
+    if (isExpandedEditorOpen) {
+      requestAnimationFrame(() => {
+        expandedTextareaRef.current?.focus();
+      });
+    }
+  }, [isExpandedEditorOpen]);
 
   // סנכרון מקומי בין לשוניות
   useEffect(() => {
@@ -448,9 +681,39 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   }, []);
 
   useEffect(() => {
-    if (!isLibraryOpen && !isAllPromptsOpen) return;
+    const anyModalOpen =
+      isLibraryOpen ||
+      isAllPromptsOpen ||
+      isExpandedEditorOpen ||
+      isWizardToolsOpen ||
+      isExportModalOpen ||
+      isCompletionModalOpen ||
+      isAuthDialogOpen;
+    if (!anyModalOpen) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (isAuthDialogOpen && !isSigningIn) {
+          setIsAuthDialogOpen(false);
+          setAuthDialogError(null);
+          return;
+        }
+        if (isExpandedEditorOpen) {
+          setIsExpandedEditorOpen(false);
+          return;
+        }
+        if (isExportModalOpen) {
+          setIsExportModalOpen(false);
+          return;
+        }
+        if (isWizardToolsOpen) {
+          setIsWizardToolsOpen(false);
+          return;
+        }
+        if (isCompletionModalOpen) {
+          setIsCompletionModalOpen(false);
+          return;
+        }
         setIsLibraryOpen(false);
         setIsAllPromptsOpen(false);
         setPendingDeleteId(null);
@@ -459,12 +722,39 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isLibraryOpen, isAllPromptsOpen]);
+  }, [
+    isLibraryOpen,
+    isAllPromptsOpen,
+    isExpandedEditorOpen,
+    isWizardToolsOpen,
+    isExportModalOpen,
+    isCompletionModalOpen,
+    isAuthDialogOpen,
+    isSigningIn,
+  ]);
 
   const showToast = (message: string) => {
     setToastMessage(message);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 3400);
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 3600);
+  };
+
+  // פתיחת חלון ההתחברות של Google בחזית מעל כל חלונות הדפדפן והפורטל
+  const handleTriggerGoogleSignIn = async () => {
+    if (!isFirebaseConfigured) return;
+    const attemptId = ++signInAttemptRef.current;
+    setAuthDialogError(null);
+    setIsAuthDialogOpen(true);
+    try {
+      await onSignIn();
+      if (attemptId === signInAttemptRef.current) {
+        setIsAuthDialogOpen(false);
+      }
+    } catch (err) {
+      if (attemptId === signInAttemptRef.current) {
+        setAuthDialogError(formatAuthError(err));
+      }
+    }
   };
 
   const launchConfetti = () => {
@@ -518,10 +808,18 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const effectivePromptText = isManualEdited ? manualPromptText : generatedPromptText;
   const activeStepMeta = STEP_META[wizard.currentStep - 1] || STEP_META[0];
 
-  // איחוד רשימת הפרומפטים של המשתמש (בענן + מקומיים שנוצרו כאורח)
   const myPrompts = useMemo(() => {
     return isCloudUser ? cloudPrompts : localPrompts;
   }, [isCloudUser, cloudPrompts, localPrompts]);
+
+  const promptStats = useMemo(() => {
+    const produced = myPrompts.filter((p) => p.productionStatus === 'הופק').length;
+    return {
+      total: myPrompts.length,
+      produced,
+      waiting: myPrompts.length - produced,
+    };
+  }, [myPrompts]);
 
   const filteredMyPrompts = useMemo(() => {
     const q = librarySearch.trim().toLowerCase();
@@ -561,6 +859,42 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     setIsManualEdited(false);
     setManualPromptText('');
     showToast('הפרומפט סונכרן מחדש עם שלבי האשף!');
+  };
+
+  /**
+   * טעינת פרומפט טקסטואלי ישירות לחלונות 7 השלבים (גם מעורך ידני, גם מהייבוא וגם מהספרייה)
+   */
+  const loadTextIntoSevenSteps = (
+    rawText: string,
+    fallbackGameName?: string,
+    options?: { startAtStep?: number; keepManualIfCustom?: boolean }
+  ) => {
+    const { wizardState, matchedSections } = parsePromptTextIntoWizardState(
+      rawText,
+      fallbackGameName
+    );
+    setWizard({
+      ...wizardState,
+      currentStep: options?.startAtStep ?? 1,
+    });
+
+    if (matchedSections >= 2 || !options?.keepManualIfCustom) {
+      setIsManualEdited(false);
+      setManualPromptText('');
+    } else {
+      setIsManualEdited(true);
+      setManualPromptText(rawText);
+    }
+
+    setIsExpandedEditorOpen(false);
+    setIsExportModalOpen(false);
+    setIsLibraryOpen(false);
+    setIsAllPromptsOpen(false);
+    showToast(
+      matchedSections >= 2
+        ? 'הפרומפט פוענח ונטען לכל 7 שלבי האשף!'
+        : 'שם המשחק ומהותו נטענו ל-7 השלבים — אפשר להשלים את שאר השלבים כרצונכם!'
+    );
   };
 
   const handleAutoGenerateTutorial = () => {
@@ -603,8 +937,9 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     setIsManualEdited(false);
     setManualPromptText('');
     setActiveLoadedPromptId(null);
+    setIsWizardToolsOpen(false);
     launchConfetti();
-    showToast('דוגמת "תופסת בחלל" מולאה בהצלחה!');
+    showToast('דוגמת "תופסת בחלל" מולאה ב-7 השלבים!');
   };
 
   const handleResetWizard = () => {
@@ -612,6 +947,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     setIsManualEdited(false);
     setManualPromptText('');
     setActiveLoadedPromptId(null);
+    setIsWizardToolsOpen(false);
     showToast('האשף אופס להתחלה חדשה');
   };
 
@@ -657,6 +993,9 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     setLibraryAlert(null);
     setPendingDeleteId(null);
     setEditingCardId(null);
+    setExpandedMoreActionsId(null);
+    setIsExportModalOpen(false);
+    setIsCompletionModalOpen(false);
     setIsLibraryOpen(true);
   };
 
@@ -811,7 +1150,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
       }
       setLibraryAlert({
         type: 'success',
-        text: `הקובץ "${file.name}" נטען לטופס! בדקו את הפרטים ולחצו על "טען ושמור בספרייה".`,
+        text: `הקובץ "${file.name}" נטען לטופס! אפשר לשמור לספרייה או לטעון ישירות ל-7 השלבים.`,
       });
     } catch {
       setLibraryAlert({ type: 'error', text: 'לא הצלחנו לקרוא את קובץ הטקסט שנבחר.' });
@@ -829,15 +1168,17 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     setIsSavingAction(true);
     try {
       const promptTitle = importPromptName.trim() || 'פרומפט מיובא';
+      const parsed = parsePromptTextIntoWizardState(importPromptText, promptTitle);
       const scope = await createPromptRecord({
         promptName: promptTitle,
-        gameName: promptTitle,
+        gameName: parsed.wizardState.gameName || promptTitle,
         creatorFirstName: creatorFirstName.trim() || 'תלמיד',
         className: importClassName.trim() || creatorClassName.trim() || 'כללי',
         promptText: importPromptText,
         productionStatus: importStatus,
         createdSiteUrl: importSiteUrl,
         isManualEdited: true,
+        wizardState: parsed.wizardState,
       });
 
       setImportPromptName('');
@@ -848,7 +1189,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
         type: 'success',
         text:
           scope === 'cloud'
-            ? `הפרומפט "${promptTitle}" נטען ונשמר בהצלחה בספריית הענן שלך!`
+            ? `הפרומפט "${promptTitle}" נטען ונשמר בספריית הענן (ומוכן גם לטעינה ל-7 השלבים)!`
             : `הפרומפט "${promptTitle}" נטען ונשמר בספרייה המקומית במכשיר.`,
       });
       showToast(`הפרומפט "${promptTitle}" נטען לספרייה!`);
@@ -933,6 +1274,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
 
   const handleStartInlineEdit = (item: SavedGamePromptItem) => {
     setEditingCardId(item.id);
+    setExpandedMoreActionsId(null);
     setEditCardName(item.promptName);
     setEditCardClass(item.className);
     setEditCardStatus(item.productionStatus);
@@ -945,6 +1287,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     setLibraryAlert(null);
     setIsSavingAction(true);
     try {
+      const parsed = parsePromptTextIntoWizardState(editCardText, editCardName || item.gameName);
       await updatePromptRecord(item, {
         promptName: editCardName,
         className: editCardClass,
@@ -952,6 +1295,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
         createdSiteUrl: editCardSiteUrl,
         promptText: editCardText,
         isManualEdited: editCardText.trim() !== item.promptText.trim() ? true : item.isManualEdited,
+        wizardState: parsed.matchedSections >= 2 ? parsed.wizardState : item.wizardState,
       });
       setEditingCardId(null);
       showToast(`השינויים ב-"${editCardName || item.promptName}" נשמרו!`);
@@ -1000,13 +1344,14 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
     }
   };
 
+  /**
+   * טעינת פרומפט שמור מתוך הספרייה / מאגר המנהל אל חלונות 7 השלבים של המחולל
+   */
   const handleLoadPromptToGenerator = (item: SavedGamePromptItem) => {
     if (item.wizardState) {
-      setWizard({ ...createDefaultWizardState(), ...item.wizardState });
-      const wizardBuilt = buildFinalPromptText({
-        ...createDefaultWizardState(),
-        ...item.wizardState,
-      });
+      const merged = { ...createDefaultWizardState(), ...item.wizardState, currentStep: 1 };
+      setWizard(merged);
+      const wizardBuilt = buildFinalPromptText(merged);
       const differsFromWizard =
         Boolean(item.isManualEdited) ||
         (Boolean(item.promptText) && item.promptText.trim() !== wizardBuilt.trim());
@@ -1018,19 +1363,25 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
         setManualPromptText('');
       }
     } else {
-      setWizard({
-        ...createDefaultWizardState(),
-        gameName: item.gameName || item.promptName,
-      });
-      setIsManualEdited(true);
-      setManualPromptText(item.promptText);
+      const parsed = parsePromptTextIntoWizardState(
+        item.promptText,
+        item.gameName || item.promptName
+      );
+      setWizard({ ...parsed.wizardState, currentStep: 1 });
+      if (parsed.matchedSections >= 2) {
+        setIsManualEdited(false);
+        setManualPromptText('');
+      } else {
+        setIsManualEdited(true);
+        setManualPromptText(item.promptText);
+      }
     }
 
     setActiveLoadedPromptId(item.storageScope === 'cloud' || !isCloudUser ? item.id : null);
     setIsLibraryOpen(false);
     setIsAllPromptsOpen(false);
     setPendingDeleteId(null);
-    showToast(`הפרומפט "${item.promptName || item.gameName}" נטען לעריכה במחולל!`);
+    showToast(`הפרומפט "${item.promptName || item.gameName}" נטען לחלונות 7 השלבים!`);
   };
 
   const handleNextStep = () => {
@@ -1038,7 +1389,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
       updateField('currentStep', wizard.currentStep + 1);
     } else {
       launchConfetti();
-      showToast('כל הכבוד! הפרומפט שלכם מוכן להעתקה, עריכה, הורדה או שמירה!');
+      setIsCompletionModalOpen(true);
     }
   };
 
@@ -1048,29 +1399,33 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   );
 
   const simGameTitle = wizard.gameName.trim() || 'המשחק המגניב שלי';
+  const promptLineCount = effectivePromptText.split('\n').length;
 
   return (
     <div className="bg-dark-wall text-slate-100 min-h-[calc(100vh-4rem)] pb-14">
       <canvas
         ref={confettiCanvasRef}
         aria-hidden="true"
-        className="fixed inset-0 w-screen h-screen pointer-events-none z-50"
+        className="fixed inset-0 w-screen h-screen pointer-events-none z-[110]"
       />
 
       {toastMessage && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-950 border-2 border-lime-400 shadow-[0_0_24px_rgba(163,230,53,0.35)] flex items-center gap-2.5 text-sm font-black text-white"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[120] px-5 py-3 rounded-2xl bg-slate-950 border-2 border-lime-400 shadow-[0_0_24px_rgba(163,230,53,0.35)] flex items-center gap-2.5 text-sm font-black text-white"
         >
           <Sparkles className="w-4 h-4 text-lime-400 shrink-0" aria-hidden="true" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* סרגל כלים ובאנר פתיחה של מחולל המשחקים */}
-      <section className="border-b-4 border-slate-950 bg-slate-950/75">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8 space-y-6">
+      {/* ===================================================================== */}
+      {/* סרגל ניווט, הדגשת סטטוס החיבור וכרטיס ספריית הפרומטים המוגדל          */}
+      {/* ===================================================================== */}
+      <section className="border-b-4 border-slate-950 bg-slate-950/80">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-8 space-y-5">
+          {/* שורה 1: ניווט מינימלי ללא עומס כפתורים */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
@@ -1082,73 +1437,121 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
             </button>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleFillDemoExample}
-                className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-lime-400/15 hover:bg-lime-400/25 text-lime-300 border border-lime-400/50 font-black text-xs transition-all cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>מלא דוגמה (תופסת בחלל)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetWizard}
-                className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs transition-all cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>התחל מחדש</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => openLibraryModal('save-current')}
-                className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-400/15 hover:bg-cyan-400/25 text-cyan-300 border border-cyan-400 font-black text-xs transition-all cursor-pointer tabular-nums"
-              >
-                <FolderOpen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>הספרייה שלי ({myPrompts.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => openLibraryModal('import-prompt')}
-                className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500 font-black text-xs transition-all cursor-pointer"
-              >
-                <Upload className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>טעינת פרומפט לספרייה</span>
-              </button>
-
               {isAdminOrEditor && (
                 <button
                   type="button"
                   onClick={() => setIsAllPromptsOpen(true)}
-                  className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 border-2 border-white font-black text-xs transition-all cursor-pointer tabular-nums"
+                  className="min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 border-2 border-white font-black text-xs sm:text-sm transition-all cursor-pointer tabular-nums"
                 >
-                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span>כל הפרומפטים ({allAdminPrompts.length})</span>
                 </button>
               )}
 
+              <button
+                type="button"
+                onClick={() => setIsWizardToolsOpen(true)}
+                className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm transition-all cursor-pointer"
+              >
+                <SlidersHorizontal className="w-4 h-4 shrink-0 text-cyan-300" aria-hidden="true" />
+                <span>אפשרויות אשף (דוגמה ואיפוס)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* פס סטטוס חיבור מודגש וברור */}
+          <div
+            role="status"
+            aria-live="polite"
+            className={`rounded-2xl border-2 px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+              !isFirebaseConfigured
+                ? 'border-rose-400 bg-rose-950/75 text-rose-50'
+                : isSigningIn
+                  ? 'border-cyan-400 bg-cyan-950/75 text-cyan-50'
+                  : isCloudUser
+                    ? 'border-emerald-400 bg-emerald-950/70 text-emerald-50 shadow-[0_0_24px_rgba(16,185,129,0.16)]'
+                    : 'border-amber-400 bg-amber-950/60 text-amber-50 shadow-[0_0_24px_rgba(251,191,36,0.12)]'
+            }`}
+          >
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div
+                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
+                  !isFirebaseConfigured
+                    ? 'bg-rose-500/20 border-rose-400 text-rose-300'
+                    : isSigningIn
+                      ? 'bg-cyan-400/20 border-cyan-400 text-cyan-300'
+                      : isCloudUser
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-200'
+                        : 'bg-amber-400 text-slate-950 border-amber-200'
+                }`}
+              >
+                {!isFirebaseConfigured ? (
+                  <AlertTriangle className="w-6 h-6" aria-hidden="true" />
+                ) : isSigningIn ? (
+                  <RefreshCw className="w-6 h-6 animate-spin" aria-hidden="true" />
+                ) : isCloudUser ? (
+                  <Cloud className="w-6 h-6" aria-hidden="true" />
+                ) : (
+                  <HardDrive className="w-6 h-6" aria-hidden="true" />
+                )}
+              </div>
+
+              <div className="space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm sm:text-base font-black">
+                    {!isFirebaseConfigured
+                      ? 'סטטוס חיבור: הענן אינו מוגדר בסביבה זו'
+                      : isSigningIn
+                        ? 'סטטוס חיבור: בתהליך התחברות לחשבון Google...'
+                        : isCloudUser
+                          ? 'סטטוס חיבור: מחובר לענן (Firebase + Google פעילים)'
+                          : 'סטטוס חיבור: לא מחובר · מצב אורח מקומי'}
+                  </span>
+                  {isCloudUser && (
+                    <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-300">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span>שמירה בענן פעילה</span>
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs text-slate-200/90">
+                  {isCloudUser ? (
+                    <>
+                      מחובר כעת:{' '}
+                      <strong className="font-mono text-white" dir="ltr">
+                        {userEmail}
+                      </strong>{' '}
+                      {creatorFirstName ? `(${creatorFirstName})` : ''} · כל פרומפט נשמר לחשבון ונגיש למורים ולמנהלים.
+                    </>
+                  ) : isSigningIn ? (
+                    'חלון ההתחברות של Google נפתח בחזית הדפדפן — בחרו את החשבון הארגוני שלכם.'
+                  ) : (
+                    'הפרומפטים נשמרים רק בדפדפן הנוכחי. התחברו עם Google כדי לשמור בענן ושהמורה יראה את התוצרים.'
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               {isCloudUser ? (
                 <button
                   type="button"
                   onClick={() => void onSignOut()}
-                  className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/60 font-bold text-xs transition-all cursor-pointer"
-                  title="מחובר לשמירה בענן — לחצו להתנתקות"
+                  className="min-h-10 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-950/70 hover:bg-slate-900 text-emerald-200 border border-emerald-400/60 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
                 >
-                  <Cloud className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{creatorFirstName || 'מחובר בענן'}</span>
-                  <LogOut className="w-3.5 h-3.5 shrink-0 opacity-80" aria-hidden="true" />
+                  <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>התנתקות מהחשבון</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   disabled={isSigningIn || !isFirebaseConfigured}
-                  onClick={() => void onSignIn()}
-                  className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-950 font-black text-xs shadow transition-all cursor-pointer disabled:opacity-60"
+                  onClick={() => void handleTriggerGoogleSignIn()}
+                  className="min-h-11 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-amber-200 text-slate-950 border-2 border-slate-950 font-black text-xs sm:text-sm shadow-[3px_3px_0px_#06b6d4] transition-all cursor-pointer disabled:opacity-60"
                 >
-                  <LogIn className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{isSigningIn ? 'מתחבר...' : 'התחבר עם Google לשמירה בענן'}</span>
+                  <LogIn className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>{isSigningIn ? 'פותח חלון התחברות...' : 'התחבר עם Google לשמירה בענן'}</span>
                 </button>
               )}
             </div>
@@ -1166,9 +1569,62 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
             </div>
           )}
 
-          <div className="bg-[#101b22]/95 border-2 border-slate-800 rounded-3xl p-5 sm:p-7 shadow-2xl">
+          {/* כרטיס בולט וברור לספריית הפרומטים עם אייקון מוגדל */}
+          <div className="rounded-3xl border-2 border-cyan-400 bg-gradient-to-l from-[#101b22] via-[#132530] to-[#0f172a] p-5 sm:p-6 shadow-[0_0_28px_rgba(34,211,238,0.18)] flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+            <div className="flex items-start sm:items-center gap-4 sm:gap-5">
+              <button
+                type="button"
+                onClick={() => openLibraryModal('save-current')}
+                aria-label="פתיחת ספריית הפרומטים שלי"
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 border-2 border-white shadow-[5px_5px_0px_#ec4899] flex items-center justify-center shrink-0 transition-transform hover:-translate-y-0.5 cursor-pointer"
+              >
+                <FolderOpen className="w-9 h-9 sm:w-11 sm:h-11 stroke-[2.2]" aria-hidden="true" />
+              </button>
+
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h2 className="font-display text-xl sm:text-2xl font-black text-white">
+                    ספריית הפרומטים שלי
+                  </h2>
+                  <span className="text-xs sm:text-sm font-black text-cyan-300 tabular-nums">
+                    ({promptStats.total} פרומפטים שמורים
+                    {promptStats.total > 0
+                      ? ` · ${promptStats.produced} הופקו · ${promptStats.waiting} ממתינים`
+                      : ''}
+                    )
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
+                  כאן שומרים את הפרומפטים שבניתם, טוענים פרומפט מוכן מקובץ או הדבקה ישר לתוך 7 השלבים, עורכים, מסמנים סטטוס (<strong>הופק / ממתין</strong>) ומוסיפים קישור לאתר שנוצר.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => openLibraryModal('save-current')}
+                className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 border-2 border-white font-black text-sm shadow-[3px_3px_0px_#ec4899] transition-all cursor-pointer"
+              >
+                <FolderOpen className="w-5 h-5 shrink-0" aria-hidden="true" />
+                <span>פתח את ספריית הפרומטים</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openLibraryModal('import-prompt')}
+                className="min-h-12 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-pink-500/20 hover:bg-pink-500/35 text-pink-200 border-2 border-pink-400 font-black text-xs sm:text-sm transition-all cursor-pointer"
+              >
+                <Upload className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>טען פרומפט מקובץ / טקסט</span>
+              </button>
+            </div>
+          </div>
+
+          {/* כותרת והסבר על המחולל */}
+          <div className="bg-[#101b22]/95 border-2 border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              <div className="lg:col-span-7 space-y-4">
+              <div className="lg:col-span-8 space-y-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <h1 className="minecraft-title text-3xl sm:text-5xl leading-tight tracking-tight">
                     מחולל המשחקים
@@ -1179,34 +1635,30 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                 </div>
 
                 <p className="text-cyan-300 font-extrabold text-base sm:text-lg leading-snug">
-                  מתכננים משחק משלכם ב-7 שלבים פשוטים, עורכים ידנית אם רוצים, ושומרים בספרייה האישית!
-                </p>
-
-                <p className="text-slate-300 text-xs sm:text-sm leading-relaxed max-w-2xl">
-                  ענו על השאלות שלב אחר שלב או טענו פרומפט קיים לספרייה. לכל פרומפט ניתן לסמן סטטוס (<strong>ממתין</strong> / <strong>הופק</strong>) ולהוסיף את קישור האתר שנוצר.
+                  מתכננים משחק משלכם ב-7 שלבים פשוטים, מגדילים את חלון העריכה הידנית מתי שרוצים, וטוענים פרומפטים ישר לשלבים!
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="rounded-2xl bg-[#0b1116] border-2 border-pink-500 p-3.5 flex items-start gap-3 shadow-[0_0_20px_rgba(236,72,153,0.14)]">
+                  <div className="rounded-2xl bg-[#0b1116] border border-pink-500/70 p-3.5 flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl bg-pink-500 text-white flex items-center justify-center shrink-0">
                       <Wand2 className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <div>
-                      <h2 className="text-sm font-black text-white">אשף + עריכה ידנית</h2>
+                      <h3 className="text-sm font-black text-white">7 שלבים + טעינת פרומפט</h3>
                       <p className="text-xs text-slate-300 mt-0.5">
-                        בונים ב-7 שלבים ועורכים חופשי כל שורה בפרומפט.
+                        אפשר לבנות מאפס או לטעון פרומפט קיים ישר לתוך שדות 7 השלבים.
                       </p>
                     </div>
                   </div>
 
-                  <div className="rounded-2xl bg-[#0b1116] border-2 border-cyan-400 p-3.5 flex items-start gap-3 shadow-[0_0_20px_rgba(34,211,238,0.14)]">
-                    <div className="w-10 h-10 rounded-xl bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0">
-                      <MonitorPlay className="w-5 h-5" aria-hidden="true" />
+                  <div className="rounded-2xl bg-[#0b1116] border border-lime-400/70 p-3.5 flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-lime-400 text-slate-950 flex items-center justify-center shrink-0">
+                      <Maximize2 className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <div>
-                      <h2 className="text-sm font-black text-white">ספרייה אישית בענן</h2>
+                      <h3 className="text-sm font-black text-white">חלון עריכה מוגדל</h3>
                       <p className="text-xs text-slate-300 mt-0.5">
-                        שמירה, טעינה, סימון &quot;הופק/ממתין&quot; וקישור לאתר שנוצר.
+                        פותחים את עורך הפרומפט בחלון גדול ונוח לעריכה ידנית מדויקת.
                       </p>
                     </div>
                   </div>
@@ -1214,10 +1666,10 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
               </div>
 
               {/* איור שלט ארקייד ניאון */}
-              <div className="lg:col-span-5 flex justify-center">
-                <div className="w-full max-w-sm rounded-3xl border-2 border-pink-500 bg-[#0b1116] overflow-hidden shadow-[0_0_30px_rgba(236,72,153,0.25)]">
+              <div className="lg:col-span-4 flex justify-center">
+                <div className="w-full max-w-xs rounded-3xl border-2 border-pink-500 bg-[#0b1116] overflow-hidden shadow-[0_0_26px_rgba(236,72,153,0.22)]">
                   <svg
-                    viewBox="0 0 420 230"
+                    viewBox="0 0 420 215"
                     className="w-full h-auto block"
                     role="img"
                     aria-label="איור שלט ארקייד ואוזניות גיימינג"
@@ -1232,27 +1684,20 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                         <stop offset="100%" stopColor="#65a30d" />
                       </linearGradient>
                     </defs>
-                    <rect width="420" height="230" fill="url(#genBgWall)" />
-                    <circle cx="95" cy="90" r="65" fill="#22d3ee" opacity="0.18" />
-                    <circle cx="310" cy="115" r="75" fill="#ec4899" opacity="0.2" />
-                    <circle cx="215" cy="65" r="55" fill="#a8f01d" opacity="0.16" />
-
-                    <rect x="35" y="28" width="18" height="18" rx="3" fill="#22d3ee" />
-                    <rect x="58" y="42" width="14" height="14" rx="3" fill="#fbbf24" />
-                    <rect x="355" y="32" width="20" height="20" rx="4" fill="#a8f01d" />
-                    <rect x="332" y="54" width="14" height="14" rx="3" fill="#ec4899" />
-                    <rect x="42" y="168" width="22" height="22" rx="4" fill="#ec4899" />
-                    <rect x="358" y="165" width="24" height="24" rx="4" fill="#22d3ee" />
+                    <rect width="420" height="215" fill="url(#genBgWall)" />
+                    <circle cx="95" cy="85" r="60" fill="#22d3ee" opacity="0.18" />
+                    <circle cx="310" cy="110" r="70" fill="#ec4899" opacity="0.2" />
+                    <circle cx="215" cy="60" r="50" fill="#a8f01d" opacity="0.16" />
 
                     <path
-                      d="M72 125 C72 68, 152 68, 152 125"
+                      d="M72 120 C72 65, 152 65, 152 120"
                       fill="none"
                       stroke="#22d3ee"
                       strokeWidth="10"
                       strokeLinecap="round"
                     />
                     <path
-                      d="M76 125 C76 74, 148 74, 148 125"
+                      d="M76 120 C76 71, 148 71, 148 120"
                       fill="none"
                       stroke="#ec4899"
                       strokeWidth="4"
@@ -1260,9 +1705,9 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                     />
                     <rect
                       x="58"
-                      y="112"
+                      y="108"
                       width="22"
-                      height="38"
+                      height="36"
                       rx="10"
                       fill="#ec4899"
                       stroke="#ffffff"
@@ -1270,16 +1715,16 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                     />
                     <rect
                       x="144"
-                      y="112"
+                      y="108"
                       width="22"
-                      height="38"
+                      height="36"
                       rx="10"
                       fill="#22d3ee"
                       stroke="#ffffff"
                       strokeWidth="2"
                     />
 
-                    <g transform="translate(185, 68) rotate(-8)">
+                    <g transform="translate(185, 62) rotate(-8)">
                       <rect
                         x="0"
                         y="18"
@@ -1290,33 +1735,15 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                         stroke="#0b1116"
                         strokeWidth="4"
                       />
-                      <rect
-                        x="10"
-                        y="24"
-                        width="145"
-                        height="68"
-                        rx="32"
-                        fill="none"
-                        stroke="#ecfccb"
-                        strokeWidth="2"
-                        opacity="0.7"
-                      />
                       <rect x="36" y="43" width="12" height="32" rx="3" fill="#0b1116" />
                       <rect x="26" y="53" width="32" height="12" rx="3" fill="#0b1116" />
                       <circle cx="122" cy="48" r="7" fill="#ec4899" stroke="#0b1116" strokeWidth="2" />
                       <circle cx="138" cy="60" r="7" fill="#22d3ee" stroke="#0b1116" strokeWidth="2" />
                       <circle cx="106" cy="60" r="7" fill="#fbbf24" stroke="#0b1116" strokeWidth="2" />
                       <circle cx="122" cy="72" r="7" fill="#ffffff" stroke="#0b1116" strokeWidth="2" />
-                      <circle cx="68" cy="74" r="10" fill="#1e293b" stroke="#0b1116" strokeWidth="2.5" />
-                      <circle cx="96" cy="74" r="10" fill="#1e293b" stroke="#0b1116" strokeWidth="2.5" />
                     </g>
-
-                    <polygon
-                      points="205,22 211,36 226,38 215,48 218,63 205,55 192,63 195,48 184,38 199,36"
-                      fill="#fbbf24"
-                    />
                   </svg>
-                  <div className="grid grid-cols-4 h-2.5" aria-hidden="true">
+                  <div className="grid grid-cols-4 h-2" aria-hidden="true">
                     <div className="bg-lime-400" />
                     <div className="bg-pink-500" />
                     <div className="bg-amber-400" />
@@ -1329,9 +1756,11 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
         </div>
       </section>
 
-      {/* אזור העבודה המרכזי */}
+      {/* ===================================================================== */}
+      {/* אזור העבודה המרכזי — אשף 7 השלבים (ימין) + תצוגה ועריכה (שמאל)        */}
+      {/* ===================================================================== */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* עמודה ימנית: אשף 7 השלבים */}
+        {/* עמודה ימנית: אשף 7 השלבים עם עומס כפתורים נקי וממוקד בכל שלב */}
         <section className="lg:col-span-7 space-y-4">
           <div className="bg-[#101b22] border-2 border-slate-800 rounded-3xl p-4 shadow-xl">
             <div className="flex items-center justify-between mb-3">
@@ -1376,13 +1805,25 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
           </div>
 
           <div className="bg-[#101b22] border-2 border-lime-400/70 rounded-3xl p-5 sm:p-6 shadow-[0_0_25px_rgba(163,230,53,0.1)]">
-            <div className="border-b border-slate-800 pb-3 mb-4">
-              <h2 className="text-lg sm:text-xl font-black text-lime-300">
-                {activeStepMeta.title}
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-300 mt-1">
-                {activeStepMeta.subtitle}
-              </p>
+            <div className="border-b border-slate-800 pb-3 mb-4 flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-lg sm:text-xl font-black text-lime-300">
+                  {activeStepMeta.title}
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1">
+                  {activeStepMeta.subtitle}
+                </p>
+              </div>
+              {wizard.currentStep === 1 && (
+                <button
+                  type="button"
+                  onClick={() => setShowStep1Ideas((prev) => !prev)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 text-xs font-bold cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{showStep1Ideas ? 'הסתר השראה' : 'צריכים השראה?'}</span>
+                </button>
+              )}
             </div>
 
             {wizard.currentStep === 1 && (
@@ -1419,35 +1860,40 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                     className="w-full p-3 rounded-2xl bg-[#0b1116] border border-slate-700 focus:border-lime-400 text-white text-sm outline-none"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-slate-400 font-bold">
-                    רעיונות מהירים:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateField(
-                        'gameSummary',
-                        'משחק פלטפורמה שבו קופצים מעל מכשולים ואוספים כוכבים זוהרים.'
-                      )
-                    }
-                    className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 cursor-pointer"
-                  >
-                    איסוף כוכבים
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateField(
-                        'gameSummary',
-                        'משחק מרוצים מהיר שבו מתחמקים ממכשולים ומגיעים לקו הסיום לפני שהזמן נגמר.'
-                      )
-                    }
-                    className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 cursor-pointer"
-                  >
-                    מרוץ נגד הזמן
-                  </button>
-                </div>
+
+                {showStep1Ideas && (
+                  <div className="p-3 rounded-2xl bg-[#0b1116] border border-slate-800 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-300 font-bold">
+                      בחרו רעיון התחלתי:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateField(
+                          'gameSummary',
+                          'משחק פלטפורמה שבו קופצים מעל מכשולים ואוספים כוכבים זוהרים.'
+                        );
+                        setShowStep1Ideas(false);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-white font-bold cursor-pointer"
+                    >
+                      איסוף כוכבים
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateField(
+                          'gameSummary',
+                          'משחק מרוצים מהיר שבו מתחמקים ממכשולים ומגיעים לקו הסיום לפני שהזמן נגמר.'
+                        );
+                        setShowStep1Ideas(false);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-white font-bold cursor-pointer"
+                    >
+                      מרוץ נגד הזמן
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1787,7 +2233,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                 className="inline-flex items-center gap-1.5 px-5 sm:px-7 py-3 rounded-2xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-xs sm:text-sm shadow-[0_0_18px_rgba(163,230,53,0.3)] transition-all active:scale-95 cursor-pointer"
               >
                 <span>
-                  {wizard.currentStep >= 7 ? 'סיימתי! הפעל חגיגה' : 'לשלב הבא'}
+                  {wizard.currentStep >= 7 ? 'סיימתי! פתח חלון סיום ושמירה' : 'לשלב הבא'}
                 </span>
                 {wizard.currentStep < 7 ? (
                   <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
@@ -1798,34 +2244,37 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
             </div>
           </div>
 
-          <div className="rounded-2xl bg-slate-900 border-2 border-cyan-400/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="text-xs sm:text-sm text-slate-200">
-              <strong className="text-cyan-300 font-black">
-                בניתם משחק בעזרת הפרומפט והטמעתם ב-Google Sites?
-              </strong>{' '}
-              הגישו אותו לפורטל כדי שכל בית הספר יוכל לשחק!
+          {/* חלון הגשה לפורטל מופיע כאן במיוחד בשלב הסיום כדי להפחית עומס בשלבים 1–6 */}
+          {wizard.currentStep === 7 && (
+            <div className="rounded-2xl bg-slate-900 border-2 border-cyan-400/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-xs sm:text-sm text-slate-200">
+                <strong className="text-cyan-300 font-black">
+                  סיימתם לבנות והטמעתם ב-Google Sites?
+                </strong>{' '}
+                הגישו את המשחק לפורטל בית הספר!
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={onOpenSubmit}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-lime-400 hover:bg-lime-300 text-slate-950 text-xs font-black cursor-pointer"
+                >
+                  <PlusCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>הגשת משחק לפורטל</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenCatalog}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-600 cursor-pointer"
+                >
+                  <span>דף האתרים</span>
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={onOpenSubmit}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-lime-400 hover:bg-lime-300 text-slate-950 text-xs font-black cursor-pointer"
-              >
-                <PlusCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>הגשת משחק לפורטל</span>
-              </button>
-              <button
-                type="button"
-                onClick={onOpenCatalog}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold border border-slate-600 cursor-pointer"
-              >
-                <span>לדף האתרים והמשחקים</span>
-              </button>
-            </div>
-          </div>
+          )}
         </section>
 
-        {/* עמודה שמאלית: סימולטור מסכים חי + תיבת הפרומפט לעריכה ידנית והעתקה */}
+        {/* עמודה שמאלית: סימולטור מסכים חי + תיבת הפרומפט (עם כפתור הגדלת חלון עריכה ופחות עומס) */}
         <aside className="lg:col-span-5 space-y-5">
           {/* כרטיס 1: סימולטור מסכים חי */}
           <div className="bg-[#101b22] border-2 border-cyan-400 rounded-3xl p-4 sm:p-5 shadow-[0_0_22px_rgba(34,211,238,0.14)]">
@@ -1865,12 +2314,12 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
               </div>
             </div>
 
-            <div className="rounded-2xl border-2 border-slate-700 bg-[#0b1116] p-4 min-h-[215px] flex flex-col justify-between relative overflow-hidden">
+            <div className="rounded-2xl border-2 border-slate-700 bg-[#0b1116] p-4 min-h-[210px] flex flex-col justify-between relative overflow-hidden">
               {wizard.simulatorTab === 'menu' && (
                 <>
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 font-bold">
-                      {wizard.dimension} • {wizard.cameraView}
+                      {wizard.dimension} · {wizard.cameraView}
                     </span>
                     <span>{wizard.artStyle}</span>
                   </div>
@@ -1878,16 +2327,12 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                     <div className="text-xl sm:text-2xl font-black text-lime-300">
                       {simGameTitle}
                     </div>
-                    <div className="flex justify-center gap-1.5 text-[11px] font-bold">
-                      <span className="px-2 py-0.5 rounded-lg bg-lime-400/20 text-lime-300">
-                        קל
-                      </span>
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300">
-                        בינוני
-                      </span>
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300">
-                        קשה
-                      </span>
+                    <div className="flex justify-center gap-1.5 text-[11px] font-bold text-slate-300">
+                      <span>קל</span>
+                      <span aria-hidden="true">·</span>
+                      <span>בינוני</span>
+                      <span aria-hidden="true">·</span>
+                      <span>קשה</span>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -1951,49 +2396,46 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
             </div>
           </div>
 
-          {/* כרטיס 2: תיבת הפרומפט הסופי — ניתנת לעריכה ידנית! */}
+          {/* כרטיס 2: הפרומפט המוכן + כפתור הגדלת חלון עריכה + כפתורי פעולה נקיים */}
           <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl p-4 sm:p-5 shadow-[0_0_22px_rgba(163,230,53,0.14)]">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <h3 className="text-sm sm:text-base font-black text-lime-300">
-                הפרומפט המוכן (ניתן לעריכה ידנית)
-              </h3>
-              <div className="flex items-center gap-1.5">
-                {isManualEdited ? (
-                  <>
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-400/20 text-amber-300 border border-amber-400/50 text-[11px] font-black">
-                      <Pencil className="w-3 h-3" aria-hidden="true" />
-                      <span>נערך ידנית</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <div className="space-y-0.5">
+                <h3 className="text-sm sm:text-base font-black text-lime-300">
+                  הפרומפט המוכן (עריכה ידנית)
+                </h3>
+                <div className="text-[11px] text-slate-400">
+                  {isManualEdited ? (
+                    <span className="text-amber-300 font-bold">
+                      מצב עריכה ידנית פעיל
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleResetToWizardAuto}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-bold cursor-pointer"
-                      title="חזרה לטקסט האוטומטי מתוך 7 שלבי האשף"
-                    >
-                      <RefreshCw className="w-3 h-3" aria-hidden="true" />
-                      <span>סנכרן מהאשף</span>
-                    </button>
-                  </>
-                ) : (
-                  <span className="px-2.5 py-0.5 rounded-lg bg-lime-400/15 text-lime-300 text-[11px] font-black">
-                    סנכרון חי מהאשף
-                  </span>
-                )}
+                  ) : (
+                    <span>מסונכרן אוטומטית עם 7 השלבים</span>
+                  )}
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setIsExpandedEditorOpen(true)}
+                className="min-h-9 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs shadow transition-all cursor-pointer shrink-0"
+              >
+                <Maximize2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>הגדל חלון עריכה</span>
+              </button>
             </div>
 
             {activeLoadedPrompt && (
-              <div className="mb-2 px-3 py-1.5 rounded-xl bg-cyan-400/10 border border-cyan-400/40 text-[11px] text-cyan-200 flex items-center justify-between gap-2">
-                <span>
-                  עורך כעת את: <strong>{activeLoadedPrompt.promptName}</strong>
+              <div className="mb-2.5 px-3 py-2 rounded-xl bg-cyan-400/10 border border-cyan-400/40 text-xs text-cyan-200 flex items-center justify-between gap-2">
+                <span className="truncate">
+                  עורך כעת: <strong>{activeLoadedPrompt.promptName}</strong>
                 </span>
                 <button
                   type="button"
                   disabled={isSavingAction}
                   onClick={() => void handleOverwriteFromGenerator(activeLoadedPrompt)}
-                  className="px-2 py-0.5 rounded-lg bg-cyan-400 text-slate-950 font-black hover:bg-cyan-300 cursor-pointer shrink-0"
+                  className="px-2.5 py-1 rounded-lg bg-cyan-400 text-slate-950 font-black hover:bg-cyan-300 cursor-pointer shrink-0 text-[11px]"
                 >
-                  שמור שינויים בפרומפט
+                  שמור עדכון בפרומפט
                 </button>
               </div>
             )}
@@ -2007,71 +2449,504 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
               rows={11}
               value={effectivePromptText}
               onChange={(e) => handleManualPromptChange(e.target.value)}
-              className="w-full p-3.5 rounded-2xl bg-[#0b1116] border border-slate-700 focus:border-cyan-400 text-slate-100 text-xs leading-relaxed focus:outline-none resize-y"
+              className="w-full p-3.5 rounded-2xl bg-[#0b1116] border border-slate-700 focus:border-cyan-400 text-slate-100 text-xs sm:text-sm leading-relaxed focus:outline-none resize-y"
             />
-            <p className="text-[11px] text-slate-400 mt-1.5">
-              אפשר ללחוץ ישירות בתוך התיבה ולערוך ידנית כל משפט בפרומפט.
-            </p>
 
+            {/* כפתורים עיקריים נקיים ללא עומס (3 פעולות ברורות + חלון פעולות נוספות) */}
             <div className="mt-4 space-y-2.5">
-              <button
-                type="button"
-                onClick={() => openLibraryModal('save-current')}
-                className="w-full py-3 px-4 rounded-2xl bg-gradient-to-l from-pink-500 to-amber-500 hover:opacity-95 text-white font-black text-sm sm:text-base shadow-[0_0_18px_rgba(236,72,153,0.3)] transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
-              >
-                <Save className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>
-                  {isCloudUser
-                    ? 'שמור בספרייה שלי (בענן)'
-                    : 'שמור בספרייה שלי'}
-                </span>
-              </button>
-
-              <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   onClick={() => void handleCopyPrompt()}
-                  className="flex-1 py-3 px-4 rounded-2xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-sm shadow-[0_0_18px_rgba(163,230,53,0.35)] transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                  className="min-h-11 py-2.5 px-3 rounded-2xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-xs sm:text-sm shadow-[0_0_16px_rgba(163,230,53,0.3)] transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
                 >
                   {copiedJustNow ? (
                     <>
                       <Check className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      <span>הפרומפט הועתק!</span>
+                      <span>הועתק!</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      <span>העתק פרומפט למחולל</span>
+                      <span>העתק פרומפט</span>
                     </>
                   )}
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => handleDownloadTxt()}
-                  className="py-3 px-4 rounded-2xl bg-[#0b1116] hover:bg-slate-800 text-cyan-300 border-2 border-cyan-400 font-extrabold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                  onClick={() => openLibraryModal('save-current')}
+                  className="min-h-11 py-2.5 px-3 rounded-2xl bg-gradient-to-l from-pink-500 to-amber-500 hover:opacity-95 text-white font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
                 >
-                  <Download className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>הורד כקובץ</span>
+                  <Save className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>שמור בספרייה</span>
                 </button>
               </div>
 
-              <a
-                href={GAME_GENERATOR_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2.5 px-4 rounded-xl bg-[#0b1116] hover:bg-slate-800 text-slate-300 hover:text-amber-300 border border-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
+              <button
+                type="button"
+                onClick={() => setIsExportModalOpen(true)}
+                className="w-full min-h-10 py-2 px-3 rounded-xl bg-[#0b1116] hover:bg-slate-800 text-cyan-300 border border-slate-700 hover:border-cyan-400 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <span>העתיקו את הפרומפט ופתחו את כלי בניית המשחקים של בית הספר</span>
-                <ExternalLink className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              </a>
+                <MoreHorizontal className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>עוד פעולות: הורדה, טעינה ל-7 השלבים ובניית המשחק</span>
+              </button>
             </div>
           </div>
         </aside>
       </div>
 
       {/* ===================================================================== */}
-      {/* מודאל הספרייה שלי: שמירה, טעינה, עריכה, מחיקה, סטטוס וקישור לאתר   */}
+      {/* חלון התחברות בחזית מעל חלון הדפדפן וכל החלונות הפתוחים (z-[100])      */}
+      {/* ===================================================================== */}
+      {isAuthDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="google-signin-topmost-title"
+          className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div className="bg-[#101b22] border-2 border-cyan-400 rounded-3xl max-w-md w-full p-6 shadow-[0_0_50px_rgba(34,211,238,0.35)] space-y-4 text-center">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-400 text-slate-950 border-2 border-white shadow-[4px_4px_0px_#ec4899] flex items-center justify-center">
+              {isSigningIn ? (
+                <RefreshCw className="w-8 h-8 animate-spin" aria-hidden="true" />
+              ) : authDialogError ? (
+                <AlertTriangle className="w-8 h-8 text-rose-700" aria-hidden="true" />
+              ) : (
+                <LogIn className="w-8 h-8" aria-hidden="true" />
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <h3
+                id="google-signin-topmost-title"
+                className="text-xl font-black text-white"
+              >
+                {isSigningIn
+                  ? 'חלון ההתחברות של Google נפתח בחזית'
+                  : authDialogError
+                    ? 'השלמת ההתחברות לחשבון Google'
+                    : 'התחברות לחשבון Google הארגוני'}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                {authDialogError
+                  ? authDialogError
+                  : 'אם חלון Google מוסתר מאחורי חלון הדפדפן או נדחה, לחצו על הכפתור למטה כדי להעלות אותו בחזית מעל חלון הדפדפן.'}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => void handleTriggerGoogleSignIn()}
+                className="w-full min-h-12 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-sm border-2 border-slate-950 shadow-[3px_3px_0px_#06b6d4] cursor-pointer"
+              >
+                <LogIn className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>
+                  {isSigningIn
+                    ? 'העלה חלון התחברות לחזית / פתח מחדש'
+                    : 'פתח חלון התחברות Google בחזית'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAuthDialogOpen(false);
+                  setAuthDialogError(null);
+                }}
+                className="w-full min-h-10 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+              >
+                סגירת חלון זה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* חלון עריכת פרומפט ידני מוגדל ומרווח                                   */}
+      {/* ===================================================================== */}
+      {isExpandedEditorOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="expanded-prompt-editor-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsExpandedEditorOpen(false);
+          }}
+          className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
+        >
+          <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl max-w-5xl w-full h-[88vh] p-5 sm:p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3
+                  id="expanded-prompt-editor-title"
+                  className="text-lg sm:text-2xl font-black text-lime-300 flex items-center gap-2"
+                >
+                  <Pencil className="w-5 h-5 shrink-0" aria-hidden="true" />
+                  <span>עורך פרומפט ידני מוגדל</span>
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 mt-0.5 tabular-nums">
+                  {isManualEdited ? 'מצב עריכה ידנית פעיל' : 'מסונכרן חי מהאשף'} ·{' '}
+                  {promptLineCount} שורות · {effectivePromptText.length} תווים
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {isManualEdited && (
+                  <button
+                    type="button"
+                    onClick={handleResetToWizardAuto}
+                    className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>סנכרן חזרה מהאשף</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    loadTextIntoSevenSteps(effectivePromptText, wizard.gameName)
+                  }
+                  className="min-h-9 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black cursor-pointer"
+                >
+                  <Wand2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>טען טקסט זה ל-7 השלבים</span>
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="סגירת העורך המוגדל"
+                  onClick={() => setIsExpandedEditorOpen(false)}
+                  className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 inline-flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            <label htmlFor="expanded-manual-prompt-textarea" className="sr-only">
+              עריכת טקסט הפרומפט בחלון מוגדל
+            </label>
+            <textarea
+              id="expanded-manual-prompt-textarea"
+              ref={expandedTextareaRef}
+              value={effectivePromptText}
+              onChange={(e) => handleManualPromptChange(e.target.value)}
+              className="flex-1 w-full p-4 sm:p-5 rounded-2xl bg-[#0b1116] border-2 border-slate-700 focus:border-cyan-400 text-slate-100 text-sm sm:text-base leading-relaxed focus:outline-none resize-none"
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyPrompt()}
+                  className="min-h-10 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-xs sm:text-sm cursor-pointer"
+                >
+                  <Copy className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>העתק פרומפט</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openLibraryModal('save-current')}
+                  className="min-h-10 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-black text-xs sm:text-sm cursor-pointer"
+                >
+                  <Save className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>שמור בספרייה</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTxt()}
+                  className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-600 font-bold text-xs sm:text-sm cursor-pointer"
+                >
+                  <Download className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>הורד כקובץ TXT</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsExpandedEditorOpen(false)}
+                className="min-h-10 px-5 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs sm:text-sm cursor-pointer"
+              >
+                סיום וחזרה למחולל
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* חלון אפשרויות אשף (דוגמה ואיפוס — נפתח רק כשמבקשים כדי לא להעמיס)     */}
+      {/* ===================================================================== */}
+      {isWizardToolsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="wizard-tools-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsWizardToolsOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-[#101b22] border-2 border-cyan-400 rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <h3 id="wizard-tools-title" className="text-lg font-black text-cyan-300">
+                אפשרויות אשף 7 השלבים
+              </h3>
+              <button
+                type="button"
+                aria-label="סגירת אפשרויות אשף"
+                onClick={() => setIsWizardToolsOpen(false)}
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 inline-flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={handleFillDemoExample}
+                className="w-full p-3.5 rounded-2xl bg-lime-400/15 hover:bg-lime-400/25 border border-lime-400/60 text-right flex items-center gap-3 cursor-pointer"
+              >
+                <Sparkles className="w-5 h-5 text-lime-300 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="text-sm font-black text-lime-300">מלא דוגמה: תופסת בחלל</div>
+                  <div className="text-xs text-slate-300">
+                    ממלא אוטומטית את כל 7 השלבים בדוגמה מוכנה ללמידה
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetWizard}
+                className="w-full p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-right flex items-center gap-3 cursor-pointer"
+              >
+                <RotateCcw className="w-5 h-5 text-amber-300 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="text-sm font-black text-white">התחל מחדש (נקה שדות)</div>
+                  <div className="text-xs text-slate-400">
+                    מאפס את כל 7 השלבים ואת העריכה הידנית
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWizardToolsOpen(false);
+                  onOpenCatalog();
+                }}
+                className="w-full p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-right flex items-center gap-3 cursor-pointer"
+              >
+                <Gamepad2 className="w-5 h-5 text-cyan-300 shrink-0" aria-hidden="true" />
+                <div>
+                  <div className="text-sm font-black text-white">מעבר לדף האתרים והמשחקים</div>
+                  <div className="text-xs text-slate-400">
+                    צפייה במשחקים ובאתרים שיצרו תלמידי בית הספר
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* חלון פעולות וייצוא (נפתח מהכפתור המשני בתיבת הפרומפט)                  */}
+      {/* ===================================================================== */}
+      {isExportModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="export-actions-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsExportModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <h3 id="export-actions-modal-title" className="text-lg font-black text-lime-300">
+                פעולות, ייצוא ובניית המשחק
+              </h3>
+              <button
+                type="button"
+                aria-label="סגירת חלון פעולות"
+                onClick={() => setIsExportModalOpen(false)}
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 inline-flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  handleDownloadTxt();
+                  setIsExportModalOpen(false);
+                }}
+                className="w-full min-h-11 px-4 py-2.5 rounded-2xl bg-[#0b1116] hover:bg-slate-800 text-cyan-300 border border-cyan-400/60 font-black text-sm flex items-center justify-between cursor-pointer"
+              >
+                <span>הורדת הפרומפט כקובץ TXT למחשב</span>
+                <Download className="w-4 h-4 shrink-0" aria-hidden="true" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  loadTextIntoSevenSteps(effectivePromptText, wizard.gameName)
+                }
+                className="w-full min-h-11 px-4 py-2.5 rounded-2xl bg-[#0b1116] hover:bg-slate-800 text-amber-300 border border-amber-400/60 font-black text-sm flex items-center justify-between cursor-pointer"
+              >
+                <span>פענוח וטעינת הפרומפט לתוך 7 השלבים</span>
+                <Wand2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+              </button>
+
+              {isManualEdited && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleResetToWizardAuto();
+                    setIsExportModalOpen(false);
+                  }}
+                  className="w-full min-h-11 px-4 py-2.5 rounded-2xl bg-[#0b1116] hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-sm flex items-center justify-between cursor-pointer"
+                >
+                  <span>ביטול עריכה ידנית וסנכרון מהאשף</span>
+                  <RefreshCw className="w-4 h-4 shrink-0" aria-hidden="true" />
+                </button>
+              )}
+
+              <a
+                href={GAME_GENERATOR_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full min-h-11 px-4 py-2.5 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-sm flex items-center justify-between"
+              >
+                <span>פתיחת כלי בניית המשחקים של בית הספר</span>
+                <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExportModalOpen(false);
+                  onOpenSubmit();
+                }}
+                className="w-full min-h-11 px-4 py-2.5 rounded-2xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-sm flex items-center justify-between cursor-pointer"
+              >
+                <span>הגשת משחק מוכן לפורטל חנה סנש</span>
+                <PlusCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* חלון סיום שלב 7 (נפתח בלחיצה על "סיימתי!" עם כל הצעדים הבאים)         */}
+      {/* ===================================================================== */}
+      {isCompletionModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="completion-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsCompletionModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-[0_0_40px_rgba(163,230,53,0.3)] space-y-4">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3
+                  id="completion-modal-title"
+                  className="text-xl sm:text-2xl font-black text-lime-300 flex items-center gap-2"
+                >
+                  <Sparkles className="w-6 h-6 shrink-0" aria-hidden="true" />
+                  <span>כל הכבוד! הפרומפט שלכם מוכן</span>
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 mt-0.5">
+                  בחרו איך תרצו להמשיך עם המשחק &quot;{simGameTitle}&quot;:
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="סגירת חלון סיום"
+                onClick={() => setIsCompletionModalOpen(false)}
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 inline-flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <pre className="p-3.5 rounded-2xl bg-[#0b1116] border border-slate-700 text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
+              {effectivePromptText}
+            </pre>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => void handleCopyPrompt()}
+                className="min-h-11 px-4 py-2.5 rounded-xl bg-lime-400 hover:bg-lime-300 text-slate-950 font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Copy className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>העתק פרומפט למחולל</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openLibraryModal('save-current')}
+                className="min-h-11 px-4 py-2.5 rounded-xl bg-gradient-to-l from-pink-500 to-amber-500 text-white font-black text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>שמור בספרייה שלי</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCompletionModalOpen(false);
+                  setIsExpandedEditorOpen(true);
+                }}
+                className="min-h-11 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-400/50 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Maximize2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>פתח עורך ידני מוגדל</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleDownloadTxt()}
+                className="min-h-11 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Download className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span>הורד כקובץ TXT</span>
+              </button>
+            </div>
+
+            <a
+              href={GAME_GENERATOR_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full min-h-11 px-4 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-sm flex items-center justify-center gap-2"
+            >
+              <span>פתח את כלי בניית המשחקים של בית הספר</span>
+              <ExternalLink className="w-4 h-4 shrink-0" aria-hidden="true" />
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* מודאל הספרייה שלי: שמירה, טעינה ל-7 השלבים, עריכה, מחיקה, סטטוס וקישור */}
       {/* ===================================================================== */}
       {isLibraryOpen && (
         <div
@@ -2089,19 +2964,23 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
         >
           <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] flex flex-col gap-4">
             <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
-              <div>
-                <h3
-                  id="prompt-library-title"
-                  className="text-lg sm:text-xl font-black text-lime-300 flex items-center gap-2"
-                >
-                  <FolderOpen className="w-5 h-5 shrink-0" aria-hidden="true" />
-                  <span>הספרייה שלי — פרומפטים, סטטוס הפקה וקישורים לאתרים</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {isCloudUser
-                    ? 'הספרייה מחוברת לענן: כל שמירה, עריכה, סימון סטטוס וקישור נשמרים אוטומטית ב-Firestore.'
-                    : 'מצב אורח (נשמר בדפדפן). התחברו עם Google לשמירה קבועה בענן וצפיית המורה.'}
-                </p>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-cyan-400 text-slate-950 flex items-center justify-center shrink-0">
+                  <FolderOpen className="w-7 h-7" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3
+                    id="prompt-library-title"
+                    className="text-lg sm:text-xl font-black text-lime-300"
+                  >
+                    הספרייה שלי — פרומפטים, סטטוס הפקה וקישורים לאתרים
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {isCloudUser
+                      ? `מחובר לענן (${userEmail}) — כל שמירה, טעינה, סטטוס וקישור נשמרים ב-Firestore.`
+                      : 'מצב אורח מקומי (נשמר בדפדפן). התחברו עם Google לשמירה בענן וצפיית המורה.'}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -2118,18 +2997,18 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
             </div>
 
             {!isCloudUser && isFirebaseConfigured && (
-              <div className="rounded-2xl bg-amber-400/10 border border-amber-400/50 p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
+              <div className="rounded-2xl bg-amber-400/15 border border-amber-400/60 p-3 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-100">
                 <span>
-                  כדי שגם המורה/המנהל יוכלו לראות את הפרומפטים שלך ושיישמרו מכל מחשב, התחברו עם Google.
+                  כדי לשמור בענן ושגם המורה/המנהל יראו את הפרומפטים שלך, התחברו עם Google.
                 </span>
                 <button
                   type="button"
                   disabled={isSigningIn}
-                  onClick={() => void onSignIn()}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black cursor-pointer shrink-0"
+                  onClick={() => void handleTriggerGoogleSignIn()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black cursor-pointer shrink-0"
                 >
                   <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{isSigningIn ? 'מתחבר...' : 'התחברות עם Google'}</span>
+                  <span>{isSigningIn ? 'מתחבר...' : 'התחבר עם Google בחזית'}</span>
                 </button>
               </div>
             )}
@@ -2179,7 +3058,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
               </div>
             )}
 
-            {/* לשוניות פעולה עליונות: שמירת הפרומפט מהמחולל או טעינת פרומפט לספרייה */}
+            {/* לשוניות פעולה עליונות: שמירת הפרומפט מהמחולל או טעינת פרומפט לספרייה / ל-7 השלבים */}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -2203,7 +3082,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                 }`}
               >
                 <Upload className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>טעינת פרומפט לספרייה (.txt או הדבקה)</span>
+                <span>טעינת פרומפט לספרייה / ל-7 השלבים</span>
               </button>
             </div>
 
@@ -2316,7 +3195,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-black text-pink-300">
-                    טעינת פרומפט מוכן לספרייה שלך (מקובץ .txt או הדבקת טקסט)
+                    טעינת פרומפט מוכן (.txt או הדבקה) לספרייה או ישר לתוך 7 השלבים
                   </span>
                   <input
                     ref={importFileInputRef}
@@ -2425,7 +3304,19 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                   />
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={!importPromptText.trim()}
+                    onClick={() =>
+                      loadTextIntoSevenSteps(importPromptText, importPromptName)
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs transition-all cursor-pointer disabled:opacity-40"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>טען מיד לחלונות 7 השלבים</span>
+                  </button>
+
                   <button
                     type="submit"
                     disabled={isSavingAction}
@@ -2444,8 +3335,8 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                 <h4 className="text-sm font-black text-cyan-300">
                   הפרומפטים השמורים שלי
                 </h4>
-                <span className="px-2.5 py-0.5 rounded-lg bg-cyan-400/15 text-cyan-300 text-[11px] font-black tabular-nums">
-                  {filteredMyPrompts.length} / {myPrompts.length}
+                <span className="text-xs font-black text-slate-300 tabular-nums">
+                  ({filteredMyPrompts.length} / {myPrompts.length})
                 </span>
               </div>
 
@@ -2499,11 +3390,11 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                   const title = item.promptName || item.gameName || 'ללא שם';
                   const isConfirmingDelete = pendingDeleteId === item.id;
                   const isEditingThis = editingCardId === item.id;
+                  const isMoreOpen = expandedMoreActionsId === item.id;
                   const siteDraft = siteUrlDrafts[item.id] ?? item.createdSiteUrl;
                   const isSiteDraftDirty =
-                    (siteUrlDrafts[item.id] !== undefined &&
-                      siteUrlDrafts[item.id].trim() !== item.createdSiteUrl) ||
-                    false;
+                    siteUrlDrafts[item.id] !== undefined &&
+                    siteUrlDrafts[item.id].trim() !== item.createdSiteUrl;
 
                   return (
                     <div
@@ -2571,7 +3462,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                               טקסט הפרומפט (עריכה ידנית)
                             </label>
                             <textarea
-                              rows={5}
+                              rows={6}
                               value={editCardText}
                               onChange={(e) => setEditCardText(e.target.value)}
                               className="w-full p-2.5 rounded-xl bg-[#101b22] border border-slate-700 text-xs text-slate-100 leading-relaxed"
@@ -2600,33 +3491,29 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                         <>
                           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-black text-sm sm:text-base text-lime-300">
-                                  {title}
-                                </span>
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black border ${
-                                    item.storageScope === 'cloud'
-                                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                                      : 'bg-slate-800 text-slate-300 border-slate-700'
-                                  }`}
-                                >
+                              <div className="font-black text-sm sm:text-base text-lime-300">
+                                {title}
+                              </div>
+                              <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-x-2">
+                                <span>יוצר/ת: {item.creatorFirstName}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>כיתה {item.className}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{formatHebrewDate(item.updatedAt || item.createdAt)}</span>
+                                <span aria-hidden="true">·</span>
+                                <span className="inline-flex items-center gap-1 text-slate-300 font-bold">
                                   {item.storageScope === 'cloud' ? (
                                     <>
-                                      <Cloud className="w-3 h-3" aria-hidden="true" />
+                                      <Cloud className="w-3 h-3 text-emerald-400" aria-hidden="true" />
                                       <span>בענן</span>
                                     </>
                                   ) : (
                                     <>
-                                      <HardDrive className="w-3 h-3" aria-hidden="true" />
+                                      <HardDrive className="w-3 h-3 text-amber-300" aria-hidden="true" />
                                       <span>במכשיר</span>
                                     </>
                                   )}
                                 </span>
-                              </div>
-                              <div className="text-[11px] text-slate-400">
-                                יוצר/ת: {item.creatorFirstName} • כיתה {item.className} •{' '}
-                                {formatHebrewDate(item.updatedAt || item.createdAt)}
                               </div>
                             </div>
 
@@ -2710,80 +3597,104 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                             </div>
                           </div>
 
-                          {/* כפתורי פעולה על הפרומפט */}
+                          {/* שורת פעולות נקייה ללא עומס: 2 פעולות עיקריות + תפריט עוד פעולות */}
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-                            <div className="flex flex-wrap items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleLoadPromptToGenerator(item)}
-                                className="px-2.5 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs cursor-pointer"
                               >
-                                פתח במחולל
+                                <Wand2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span>טען ל-7 השלבים</span>
                               </button>
+
                               <button
                                 type="button"
                                 onClick={() => handleStartInlineEdit(item)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 font-bold text-xs cursor-pointer"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 font-bold text-xs cursor-pointer"
                               >
                                 <Pencil className="w-3 h-3" aria-hidden="true" />
                                 <span>עריכה</span>
                               </button>
-                              <button
-                                type="button"
-                                disabled={isSavingAction}
-                                onClick={() => void handleOverwriteFromGenerator(item)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/50 font-black text-xs cursor-pointer"
-                              >
-                                <RefreshCw className="w-3 h-3" aria-hidden="true" />
-                                <span>עדכן מהמחולל</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleCopyPrompt(item.promptText)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer"
-                              >
-                                <Copy className="w-3 h-3" aria-hidden="true" />
-                                <span>העתק</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadTxt(item.promptText, title)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-lime-300 border border-lime-400/40 font-black text-xs cursor-pointer"
-                              >
-                                <Download className="w-3 h-3" aria-hidden="true" />
-                                <span>הורד</span>
-                              </button>
                             </div>
 
-                            {isConfirmingDelete ? (
-                              <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedMoreActionsId(isMoreOpen ? null : item.id)
+                              }
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs font-bold cursor-pointer"
+                            >
+                              <span>פעולות נוספות</span>
+                              {isMoreOpen ? (
+                                <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+                              )}
+                            </button>
+                          </div>
+
+                          {isMoreOpen && (
+                            <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 <button
                                   type="button"
                                   disabled={isSavingAction}
-                                  onClick={() => void handleConfirmDeletePrompt(item)}
-                                  className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer"
+                                  onClick={() => void handleOverwriteFromGenerator(item)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 border border-amber-400/50 font-black text-xs cursor-pointer"
                                 >
-                                  אישור מחיקה
+                                  <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                                  <span>עדכן מהמחולל</span>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setPendingDeleteId(null)}
-                                  className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                                  onClick={() => void handleCopyPrompt(item.promptText)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer"
                                 >
-                                  ביטול
+                                  <Copy className="w-3 h-3" aria-hidden="true" />
+                                  <span>העתק</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadTxt(item.promptText, title)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-lime-300 border border-lime-400/40 font-black text-xs cursor-pointer"
+                                >
+                                  <Download className="w-3 h-3" aria-hidden="true" />
+                                  <span>הורד TXT</span>
                                 </button>
                               </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setPendingDeleteId(item.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/60 font-black text-xs cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" aria-hidden="true" />
-                                <span>מחק</span>
-                              </button>
-                            )}
-                          </div>
+
+                              {isConfirmingDelete ? (
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={isSavingAction}
+                                    onClick={() => void handleConfirmDeletePrompt(item)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer"
+                                  >
+                                    אישור מחיקה
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPendingDeleteId(null)}
+                                    className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                                  >
+                                    ביטול
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setPendingDeleteId(item.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/60 font-black text-xs cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" aria-hidden="true" />
+                                  <span>מחק פרומפט</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -2884,13 +3795,13 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                               {item.promptName}
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-lg text-[11px] font-black ${
+                              className={`text-xs font-black ${
                                 item.productionStatus === 'הופק'
-                                  ? 'bg-emerald-500/20 text-emerald-300'
-                                  : 'bg-amber-400/20 text-amber-300'
+                                  ? 'text-emerald-300'
+                                  : 'text-amber-300'
                               }`}
                             >
-                              {item.productionStatus}
+                              · {item.productionStatus}
                             </span>
                           </div>
                           <div className="text-xs text-slate-300">
@@ -2900,7 +3811,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                                 {item.ownerEmail}
                               </span>
                             )}
-                            {' • '}
+                            {' · '}
                             {formatHebrewDate(item.updatedAt || item.createdAt)}
                           </div>
                           {item.createdSiteUrl && (
@@ -2932,7 +3843,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                             onClick={() => handleLoadPromptToGenerator(item)}
                             className="px-2.5 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-black cursor-pointer"
                           >
-                            טען למחולל
+                            טען ל-7 השלבים
                           </button>
                           <button
                             type="button"
