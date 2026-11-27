@@ -79,7 +79,9 @@ import {
   renderSmartCoverPngBlob,
   triggerCoverPngDownload,
 } from '../utils/previewGenerator';
+import { GuideSectionId } from '../data/portalGuide';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { GuideInfoButton } from './GuideInfoButton';
 import { ResolvedPreviewKind, SitePreviewMedia } from './SitePreviewMedia';
 
 interface AdminConsoleModalProps {
@@ -89,6 +91,7 @@ interface AdminConsoleModalProps {
   isSigningIn: boolean;
   onSignIn: () => Promise<void>;
   onSignOut: () => Promise<void>;
+  onOpenGuide?: (sectionId: GuideSectionId) => void;
 }
 
 interface PendingConfirm {
@@ -221,6 +224,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   isSigningIn,
   onSignIn,
   onSignOut,
+  onOpenGuide,
 }) => {
   const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -1681,18 +1685,18 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="admin-console-title"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-white border-2 border-slate-950 rounded-2xl shadow-[8px_8px_0px_#06b6d4] overflow-hidden"
+        className="relative w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[92vh] flex flex-col bg-white sm:border-2 border-slate-950 rounded-none sm:rounded-2xl sm:shadow-[8px_8px_0px_#06b6d4] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* כותרת המסוף */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-slate-950 text-white border-b-2 border-lime-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-3 bg-slate-950 text-white border-b-2 border-lime-400 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-lime-400 text-slate-950 inline-flex items-center justify-center shrink-0">
               <Database className="w-5 h-5" aria-hidden="true" />
@@ -1708,6 +1712,19 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <GuideInfoButton
+              sectionId={
+                activeTab === 'prompts'
+                  ? 'admin-prompts-canvas'
+                  : activeTab === 'editors'
+                    ? 'admin-editors'
+                    : 'admin-moderation'
+              }
+              onOpenGuide={onOpenGuide}
+              variant="neon"
+              showText
+              label="מדריך ניהול"
+            />
             {user && (
               <button
                 type="button"
@@ -1730,7 +1747,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
         </div>
 
         {/* תוכן */}
-        <div className="overflow-y-auto p-5 sm:p-6 space-y-6">
+        <div className="overflow-y-auto p-3 sm:p-5 space-y-4">
           {statusMessage && (
             <div
               role={statusMessage.type === 'error' ? 'alert' : 'status'}
@@ -1868,21 +1885,16 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                 </div>
               ) : (
                 <>
-                  <div className="p-4 rounded-xl border-2 border-cyan-400 bg-cyan-50/70 text-xs sm:text-sm text-slate-800 flex items-start gap-3 leading-relaxed">
-                    <Info className="w-4 h-4 text-cyan-800 shrink-0 mt-0.5" aria-hidden="true" />
-                    <div className="space-y-1">
-                      <div className="font-bold text-slate-950">
-                        הגנת מידע ב-GitHub Pages + Firebase ושמירה על פרטיות התלמידים
-                      </div>
-                      <p>
-                        הפורטל מתארח ב-<strong>GitHub Pages</strong> (<span className="font-mono" dir="ltr">zohar-lab.github.io/senesh-sites/</span>) עם הגדרות Firebase מאובטחות ב-GitHub Secrets (<span className="font-mono">FIREBASE_APPLET_CONFIG</span>) וללא קובץ סודות במאגר. שמות תלמידים נשמרים ומוצגים בפורמט <strong>שם פרטי וכינוי בלבד</strong> (ללא שמות משפחה).
-                      </p>
-                    </div>
+                  <div className="px-3 py-2 rounded-xl border border-cyan-300 bg-cyan-50/70 text-xs text-slate-800 flex items-center gap-2">
+                    <Info className="w-4 h-4 text-cyan-800 shrink-0" aria-hidden="true" />
+                    <span className="truncate">
+                      אירוח מאובטח ב-GitHub Pages + Firebase · שמות תלמידים בפורמט שם פרטי וכינוי בלבד.
+                    </span>
                   </div>
 
-                  {/* טאבים ראשיים */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-slate-200 pb-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                  {/* טאבים ראשיים נגללים בנוחות במובייל */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b-2 border-slate-200 pb-3">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
                       <button
                         type="button"
                         onClick={() => setActiveTab('sites')}
@@ -2039,15 +2051,22 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                           </button>
 
                           {counts.missingImage > 0 && (
-                            <button
-                              type="button"
-                              disabled={isWorking}
-                              onClick={requestBatchGenerateMissingPreviews}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-950 font-extrabold hover:bg-indigo-100 cursor-pointer disabled:opacity-60"
-                            >
-                              <ImagePlus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                              <span>השלם תמונות לחסרים ({counts.missingImage})</span>
-                            </button>
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={isWorking}
+                                onClick={requestBatchGenerateMissingPreviews}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-400 bg-indigo-50 text-indigo-950 font-extrabold hover:bg-indigo-100 cursor-pointer disabled:opacity-60"
+                              >
+                                <ImagePlus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <span>השלם תמונות לחסרים ({counts.missingImage})</span>
+                              </button>
+                              <GuideInfoButton
+                                sectionId="admin-previews"
+                                onOpenGuide={onOpenGuide}
+                                label="הסבר על השלמת תצוגות מקדימות בענן"
+                              />
+                            </div>
                           )}
                         </div>
                       </div>
@@ -2529,6 +2548,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                               ) — פתיחה ישירה של <strong>Gemini Canvas</strong> בחשבון זה והוספת התוצר לממתינים לאישור.
                             </span>
                           </div>
+                          <GuideInfoButton
+                            sectionId="admin-prompts-canvas"
+                            onOpenGuide={onOpenGuide}
+                            label="הסבר על ניהול פרומפטים ו-Gemini Canvas"
+                          />
                         </div>
                       )}
 
@@ -2896,9 +2920,16 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                           className="p-4 sm:p-5 rounded-xl border-2 border-slate-950 bg-slate-50 space-y-3"
                         >
                           <div className="space-y-0.5">
-                            <h3 className="font-display text-base font-extrabold text-slate-950">
-                              הוספת מורשה עריכה חדש (סופר אדמין בלבד)
-                            </h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-display text-base font-extrabold text-slate-950">
+                                הוספת מורשה עריכה חדש (סופר אדמין בלבד)
+                              </h3>
+                              <GuideInfoButton
+                                sectionId="admin-editors"
+                                onOpenGuide={onOpenGuide}
+                                label="הסבר על ניהול מורשי עריכה"
+                              />
+                            </div>
                             <p className="text-xs text-slate-600">
                               הוספת כתובת Google ארגונית (<span className="font-mono">@edu-haifa.org.il</span>) תעניק לה הרשאת בדיקה, אישור ועריכה של אתרי תלמידים ב-Firestore.
                             </p>

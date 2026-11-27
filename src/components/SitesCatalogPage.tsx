@@ -5,10 +5,8 @@ import {
   ArrowUpDown,
   ChevronDown,
   Clock,
-  Gamepad2,
   Globe,
   Info,
-  PlusCircle,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -23,11 +21,13 @@ import {
   StudentSiteItem,
   TagFilter,
 } from '../types/portal';
+import { GuideSectionId } from '../data/portalGuide';
 import {
   matchesGradeFilter,
   SITE_TAGS,
   sortSites,
 } from '../utils/portalUtils';
+import { GuideInfoButton } from './GuideInfoButton';
 import { SiteCard } from './SiteCard';
 
 interface SitesCatalogPageProps {
@@ -44,6 +44,7 @@ interface SitesCatalogPageProps {
   onOpenSubmit: () => void;
   onRetryLoad?: () => void;
   onOpenAdmin?: () => void;
+  onOpenGuide?: (sectionId: GuideSectionId) => void;
 }
 
 const GRADES: GradeFilter[] = ['כל השכבות', "א'-ב'", "ג'-ד'", "ה'-ו'"];
@@ -74,11 +75,13 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
   onOpenSubmit,
   onRetryLoad,
   onOpenAdmin,
+  onOpenGuide,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<TagFilter>('הכל');
   const [selectedGrade, setSelectedGrade] = useState<GradeFilter>('כל השכבות');
   const [sortMode, setSortMode] = useState<SiteSortMode>('tag-order');
+  const [catalogView, setCatalogView] = useState<'search' | 'newest' | 'featured'>('search');
 
   // 1. חדשים: 6 האתרים החדשים ביותר
   const newestSites = useMemo(
@@ -188,54 +191,98 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
   );
 
   return (
-    <div className="space-y-10 pb-14">
-      {/* כותרת דף האתרים הנפרד */}
+    <div className="space-y-6 pb-12">
+      {/* כותרת קומפקטית לדף האתרים ללא כפילות כפתורי הניווט */}
       <section className="bg-dark-wall text-white border-b-4 border-slate-950">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
-          <div className="space-y-2.5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
             <button
               type="button"
               onClick={onBackHome}
-              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-cyan-300 hover:text-lime-300 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-cyan-300 hover:text-lime-300 transition-colors cursor-pointer"
             >
-              <ArrowRight className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <ArrowRight className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span>חזרה לדף הראשי</span>
             </button>
 
-            <h1 className="font-display text-3xl sm:text-4xl font-black text-white">
-              דף האתרים והמשחקים · חנה סנש
-            </h1>
-            <p className="text-sm sm:text-base text-slate-300 max-w-2xl">
-              כאן מרוכזים כל האתרים והמשחקים של תלמידי בית הספר (המשחקים גם הם אתרים ב-Google Sites): האתרים החדשים ביותר, האתרים הנבחרים וחיפוש ומיון לפי תוויות.
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="font-display text-2xl sm:text-3xl font-black text-white">
+                דף האתרים והמשחקים
+              </h1>
+              <GuideInfoButton
+                sectionId="catalog-browse"
+                onOpenGuide={onOpenGuide}
+                variant="neon"
+                label="הסבר ורציונל על דף האתרים"
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <div className="px-4 py-2 rounded-xl bg-slate-900 border-2 border-cyan-400 text-xs sm:text-sm text-slate-200 tabular-nums">
-              <strong className="text-lime-300 font-black text-base ms-1">{sites.length}</strong>{' '}
-              אתרים ומשחקים בגלריה
-            </div>
-            <button
-              type="button"
-              onClick={onOpenGenerator}
-              className="min-h-11 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-white bg-amber-400 text-slate-950 text-sm font-extrabold shadow-[3px_3px_0px_#06b6d4] hover:bg-amber-300 transition-colors cursor-pointer"
-            >
-              <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>מחולל משחקים</span>
-            </button>
-            <button
-              type="button"
-              onClick={onOpenSubmit}
-              className="min-h-11 inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-white bg-lime-400 text-slate-950 text-sm font-extrabold shadow-[3px_3px_0px_#ec4899] hover:bg-lime-300 cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>הגשת אתר חדש</span>
-            </button>
+          <div className="px-3.5 py-1.5 rounded-xl bg-slate-900 border-2 border-cyan-400 text-xs sm:text-sm text-slate-200 tabular-nums shrink-0">
+            <strong className="text-lime-300 font-black text-base ms-1">{sites.length}</strong>{' '}
+            אתרים בגלריה
           </div>
         </div>
       </section>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-5">
+        {/* בחירת תצוגה נקייה ללא חזרה כפולה על אותם אתרים */}
+        <div
+          role="tablist"
+          aria-label="תצוגות דף האתרים"
+          className="flex flex-wrap items-center gap-2 border-b-2 border-slate-950 pb-3"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={catalogView === 'search'}
+            onClick={() => setCatalogView('search')}
+            className={`min-h-10 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border-2 text-xs sm:text-sm font-extrabold transition-colors cursor-pointer ${
+              catalogView === 'search'
+                ? 'bg-slate-950 text-lime-300 border-slate-950 shadow-[2px_2px_0px_#06b6d4]'
+                : 'bg-white text-slate-800 border-slate-300 hover:border-slate-950'
+            }`}
+          >
+            <Tags className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>כל האתרים וחיפוש ({sites.length})</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={catalogView === 'newest'}
+            onClick={() => setCatalogView('newest')}
+            className={`min-h-10 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border-2 text-xs sm:text-sm font-extrabold transition-colors cursor-pointer ${
+              catalogView === 'newest'
+                ? 'bg-cyan-400 text-slate-950 border-slate-950 shadow-[2px_2px_0px_#020617]'
+                : 'bg-white text-slate-800 border-slate-300 hover:border-slate-950'
+            }`}
+          >
+            <Clock className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>חדשים ({newestSites.length})</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={catalogView === 'featured'}
+            onClick={() => setCatalogView('featured')}
+            className={`min-h-10 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border-2 text-xs sm:text-sm font-extrabold transition-colors cursor-pointer ${
+              catalogView === 'featured'
+                ? 'bg-amber-400 text-slate-950 border-slate-950 shadow-[2px_2px_0px_#020617]'
+                : 'bg-white text-slate-800 border-slate-300 hover:border-slate-950'
+            }`}
+          >
+            <Star className="w-4 h-4 shrink-0 fill-current" aria-hidden="true" />
+            <span>נבחרים ({featuredSites.length})</span>
+          </button>
+
+          <GuideInfoButton
+            sectionId={catalogView === 'search' ? 'catalog-search' : 'catalog-browse'}
+            onOpenGuide={onOpenGuide}
+            label="הסבר על סינון וחיפוש אתרים"
+          />
+        </div>
         {isLoading && (
           <div
             aria-live="polite"
@@ -305,107 +352,57 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
         ) : null}
 
         {/* 1. חדשים: 6 אתרים */}
-        <section aria-labelledby="newest-sites-heading" className="space-y-5">
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-slate-950 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-cyan-400 border-2 border-slate-950 shadow-[3px_3px_0px_#020617] text-slate-950 inline-flex items-center justify-center shrink-0">
-                <Clock className="w-5 h-5" aria-hidden="true" />
+        {catalogView === 'newest' && (
+          <section aria-labelledby="newest-sites-heading" className="space-y-4">
+            <h2 id="newest-sites-heading" className="sr-only">
+              חדשים
+            </h2>
+            {isLoading ? (
+              renderSkeletonGrid(6)
+            ) : newestSites.length === 0 ? (
+              <div className="bg-white border-2 border-slate-950 rounded-xl p-8 text-center text-sm text-slate-600">
+                עדיין אין אתרים חדשים להצגה.
               </div>
-              <div>
-                <h2
-                  id="newest-sites-heading"
-                  className="font-display text-2xl sm:text-3xl font-black text-slate-950"
-                >
-                  חדשים
-                </h2>
-                <p className="text-xs sm:text-sm font-semibold text-slate-600">
-                  6 האתרים החדשים ביותר שעלו לפורטל
-                </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {newestSites.map(renderSiteCard)}
               </div>
-            </div>
-
-            <span className="text-xs sm:text-sm font-extrabold text-slate-700 tabular-nums">
-              מציג {newestSites.length} אתרים חדשים
-            </span>
-          </div>
-
-          {isLoading ? (
-            renderSkeletonGrid(6)
-          ) : newestSites.length === 0 ? (
-            <div className="bg-white border-2 border-slate-950 rounded-xl p-8 text-center text-sm text-slate-600">
-              עדיין אין אתרים חדשים להצגה.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {newestSites.map(renderSiteCard)}
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        )}
 
         {/* 2. נבחרים: 6 אתרים */}
-        <section aria-labelledby="featured-sites-heading" className="space-y-5">
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-slate-950 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-400 border-2 border-slate-950 shadow-[3px_3px_0px_#020617] text-slate-950 inline-flex items-center justify-center shrink-0">
-                <Star className="w-5 h-5 fill-slate-950" aria-hidden="true" />
+        {catalogView === 'featured' && (
+          <section aria-labelledby="featured-sites-heading" className="space-y-4">
+            <h2 id="featured-sites-heading" className="sr-only">
+              נבחרים
+            </h2>
+            {isLoading ? (
+              renderSkeletonGrid(6)
+            ) : featuredSites.length === 0 ? (
+              <div className="bg-white border-2 border-slate-950 rounded-xl p-8 text-center text-sm text-slate-600">
+                טרם סומנו אתרים נבחרים במסוף הניהול. מנהלי הפורטל יכולים לסמן כל אתר מאושר כ&quot;נבחר&quot;.
               </div>
-              <div>
-                <h2
-                  id="featured-sites-heading"
-                  className="font-display text-2xl sm:text-3xl font-black text-slate-950"
-                >
-                  נבחרים
-                </h2>
-                <p className="text-xs sm:text-sm font-semibold text-slate-600">
-                  6 אתרים נבחרים ומומלצים של תלמידי בית הספר
-                </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {featuredSites.map(renderSiteCard)}
               </div>
-            </div>
-
-            <span className="text-xs sm:text-sm font-extrabold text-slate-700 tabular-nums">
-              מציג {featuredSites.length} אתרים נבחרים
-            </span>
-          </div>
-
-          {isLoading ? (
-            renderSkeletonGrid(6)
-          ) : featuredSites.length === 0 ? (
-            <div className="bg-white border-2 border-slate-950 rounded-xl p-8 text-center text-sm text-slate-600">
-              טרם סומנו אתרים נבחרים במסוף הניהול. מנהלי הפורטל יכולים לסמן כל אתר מאושר כ&quot;נבחר&quot;.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {featuredSites.map(renderSiteCard)}
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        )}
 
         {/* 3. חיפוש לפי תוויות + מיון תצוגה */}
+        {catalogView === 'search' && (
         <section
           id="tag-search-section"
           aria-labelledby="tag-search-heading"
-          className="space-y-6"
+          className="space-y-5"
         >
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-slate-950 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-lime-400 border-2 border-slate-950 shadow-[3px_3px_0px_#020617] text-slate-950 inline-flex items-center justify-center shrink-0">
-                <Tags className="w-5 h-5" aria-hidden="true" />
-              </div>
-              <div>
-                <h2
-                  id="tag-search-heading"
-                  className="font-display text-2xl sm:text-3xl font-black text-slate-950"
-                >
-                  חיפוש לפי תוויות
-                </h2>
-                <p className="text-xs sm:text-sm font-semibold text-slate-600">
-                  סננו ומיינו את כל האתרים לפי תווית, שכבה ומילת חיפוש
-                </p>
-              </div>
-            </div>
-          </div>
+          <h2 id="tag-search-heading" className="sr-only">
+            חיפוש לפי תוויות
+          </h2>
 
-          <div className="bg-white border-2 border-slate-950 rounded-xl shadow-[5px_5px_0px_#020617] p-4 sm:p-5 space-y-4">
+          <div className="bg-white border-2 border-slate-950 rounded-xl shadow-[4px_4px_0px_#020617] p-3.5 sm:p-4 space-y-3">
             <div className="flex flex-col lg:flex-row gap-3">
               <div className="relative flex-1">
                 <label htmlFor="sites-page-search" className="sr-only">
@@ -553,11 +550,12 @@ export const SitesCatalogPage: React.FC<SitesCatalogPageProps> = ({
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredAndSortedSites.map(renderSiteCard)}
             </div>
           )}
         </section>
+        )}
       </div>
     </div>
   );

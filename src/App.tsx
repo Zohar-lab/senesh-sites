@@ -3,24 +3,28 @@ import { User } from 'firebase/auth';
 import {
   AlertTriangle,
   ArrowLeft,
+  BookOpen,
   Gamepad2,
   Info,
-  Laptop,
   LayoutGrid,
+  Menu,
   PlusCircle,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
   Star,
+  X,
 } from 'lucide-react';
 import heroShowcaseImg from './assets/images/hero_sites_showcase_1795618553325.jpg';
 import { AdminConsoleModal } from './components/AdminConsoleModal';
 import { GamePromptGeneratorPage } from './components/GamePromptGeneratorPage';
+import { GuideInfoButton } from './components/GuideInfoButton';
+import { PortalGuideModal } from './components/PortalGuideModal';
 import { SiteCard } from './components/SiteCard';
 import { SitesCatalogPage } from './components/SitesCatalogPage';
 import { SiteShowcaseModal } from './components/SiteShowcaseModal';
 import { SubmitSiteModal } from './components/SubmitSiteModal';
 import { DEMO_SITES, INITIAL_DEMO_FEEDBACK } from './data/mockSites';
+import { GuideSectionId } from './data/portalGuide';
 import { firebaseConfigError, isFirebaseConfigured } from './services/firebaseApp';
 import {
   addFeedbackToFirestore,
@@ -80,6 +84,8 @@ export default function App() {
 
   const [activeSite, setActiveSite] = useState<StudentSiteItem | null>(null);
   const [isSubmitOpen, setIsSubmitOpen] = useState<boolean>(false);
+  const [guideSectionId, setGuideSectionId] = useState<GuideSectionId | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // מצב Google Auth (Firebase Auth בלבד) + מסוף ניהול
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
@@ -96,6 +102,7 @@ export default function App() {
   }, []);
 
   const navigateTo = (page: PortalPage, sectionAnchor?: string) => {
+    setIsMobileMenuOpen(false);
     setActivePage(page);
     if (page === 'sites' || page === 'generator') {
       window.location.hash = page;
@@ -222,20 +229,20 @@ export default function App() {
 
   return (
     <div dir="rtl" className="min-h-screen flex flex-col bg-street-concrete text-slate-950">
-      {/* סרגל ניווט עליון — 3 אזורים בשורה אחת */}
+      {/* סרגל ניווט עליון מצומצם ונקי + תפריט נפתח במובייל */}
       <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-xs text-white border-b-2 border-lime-400">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 sm:gap-6">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-2 sm:gap-4">
           <a
             href="#top"
             onClick={(e) => {
               e.preventDefault();
               navigateTo('home');
             }}
-            className="inline-flex items-center gap-2.5 font-display text-base sm:text-lg font-black text-white whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-400 rounded-md"
+            className="inline-flex items-center gap-2 font-display text-sm sm:text-base font-black text-white whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-400 rounded-md"
           >
             <svg
               viewBox="0 0 24 24"
-              className="w-8 h-8 shrink-0 border-2 border-white rounded-md shadow-[2px_2px_0px_#ec4899]"
+              className="w-7 h-7 shrink-0 border-2 border-white rounded-md shadow-[2px_2px_0px_#ec4899]"
               shapeRendering="crispEdges"
               aria-hidden="true"
             >
@@ -246,16 +253,15 @@ export default function App() {
               <rect x="4" y="10" width="16" height="4" fill="#a3e635" />
               <rect x="4" y="17" width="10" height="3" fill="#ec4899" />
             </svg>
-            <span className="text-lime-300">פורטל אתרים ומשחקים</span>
-            <span aria-hidden="true" className="text-slate-600 font-normal hidden sm:inline">
-              |
+            <span className="text-lime-300">פורטל חנה סנש</span>
+            <span className="hidden lg:inline text-xs font-bold text-slate-400">
+              · אתרים ומשחקים
             </span>
-            <span className="text-amber-300 hidden sm:inline">חנה סנש</span>
           </a>
 
           <nav
             aria-label="ניווט ראשי"
-            className="flex items-center gap-4 sm:gap-5 text-xs sm:text-sm font-bold text-slate-200"
+            className="hidden md:flex items-center gap-5 text-sm font-bold text-slate-200"
           >
             <button
               type="button"
@@ -278,7 +284,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => navigateTo('generator')}
-              className={`lg:hidden hover:text-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`hover:text-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activePage === 'generator' ? 'text-amber-300 underline underline-offset-4' : ''
               }`}
             >
@@ -286,36 +292,24 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => navigateTo('home', 'how-to-submit')}
-              className="hidden md:inline-block hover:text-pink-400 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              onClick={() => setGuideSectionId('portal-overview')}
+              className="inline-flex items-center gap-1 hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              איך מגישים אתר
+              <BookOpen className="w-3.5 h-3.5 shrink-0 text-cyan-300" aria-hidden="true" />
+              <span>מדריך</span>
             </button>
           </nav>
 
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigateTo('generator')}
-              className={`hidden lg:inline-flex min-h-10 items-center gap-1.5 px-3 py-2 rounded-lg border-2 text-xs sm:text-sm font-extrabold transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${
-                activePage === 'generator'
-                  ? 'border-white bg-amber-400 text-slate-950'
-                  : 'border-amber-400 bg-slate-900 text-amber-300 hover:bg-amber-400 hover:text-slate-950'
-              }`}
-            >
-              <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>מחולל משחקים</span>
-            </button>
-
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setIsAdminOpen(true)}
               aria-label={authUser ? `ניהול הפורטל (מחובר: ${authUser.email || ''})` : 'ניהול הפורטל'}
               title={authUser ? `מחובר כעת: ${authUser.email || ''}` : 'התחברות וניהול הפורטל'}
-              className={`min-h-10 inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-lg border-2 text-xs sm:text-sm font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 ${
+              className={`hidden md:inline-flex min-h-9 items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 text-xs sm:text-sm font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 authUser
-                  ? 'border-emerald-400 bg-emerald-950/80 text-emerald-300 hover:bg-emerald-400 hover:text-slate-950 focus-visible:outline-emerald-300'
-                  : 'border-cyan-400 bg-slate-900 text-cyan-300 hover:bg-cyan-400 hover:text-slate-950 focus-visible:outline-cyan-300'
+                  ? 'border-emerald-400 bg-emerald-950/80 text-emerald-300 hover:bg-emerald-400 hover:text-slate-950'
+                  : 'border-cyan-400 bg-slate-900 text-cyan-300 hover:bg-cyan-400 hover:text-slate-950'
               }`}
             >
               <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
@@ -324,15 +318,96 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setIsSubmitOpen(true)}
-              className="min-h-10 inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-lg border-2 border-slate-950 bg-lime-400 text-slate-950 text-xs sm:text-sm font-extrabold shadow-[3px_3px_0px_#ec4899] hover:bg-lime-300 hover:-translate-y-0.5 active:translate-y-0 transition-all whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                setIsSubmitOpen(true);
+              }}
+              className="min-h-9 inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg border-2 border-slate-950 bg-lime-400 text-slate-950 text-xs sm:text-sm font-extrabold shadow-[2px_2px_0px_#ec4899] hover:bg-lime-300 transition-all whitespace-nowrap shrink-0 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span className="hidden sm:inline">הגשת אתר חדש</span>
+              <span className="hidden sm:inline">הגשת אתר</span>
               <span className="sm:hidden">הגשה</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+              aria-expanded={isMobileMenuOpen}
+              aria-label={isMobileMenuOpen ? 'סגירת תפריט' : 'פתיחת תפריט ניווט'}
+              className="md:hidden min-w-9 min-h-9 inline-flex items-center justify-center rounded-lg border-2 border-slate-700 bg-slate-900 text-slate-100 hover:border-cyan-400 cursor-pointer"
+            >
+              {isMobileMenuOpen ? (
+                <X className="w-5 h-5" aria-hidden="true" />
+              ) : (
+                <Menu className="w-5 h-5" aria-hidden="true" />
+              )}
             </button>
           </div>
         </div>
+
+        {/* תפריט מובייל קומפקטי */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden border-t border-slate-800 bg-slate-950 px-3 py-3 space-y-1.5">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => navigateTo('home')}
+                className={`min-h-10 px-3 py-2 rounded-lg text-xs font-extrabold text-right cursor-pointer ${
+                  activePage === 'home'
+                    ? 'bg-lime-400 text-slate-950'
+                    : 'bg-slate-900 text-slate-200 border border-slate-800'
+                }`}
+              >
+                דף ראשי
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateTo('sites')}
+                className={`min-h-10 px-3 py-2 rounded-lg text-xs font-extrabold text-right cursor-pointer ${
+                  activePage === 'sites'
+                    ? 'bg-cyan-400 text-slate-950'
+                    : 'bg-slate-900 text-slate-200 border border-slate-800'
+                }`}
+              >
+                דף האתרים ({sites.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateTo('generator')}
+                className={`min-h-10 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-extrabold text-right cursor-pointer ${
+                  activePage === 'generator'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-slate-900 text-amber-300 border border-slate-800'
+                }`}
+              >
+                <Gamepad2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>מחולל משחקים</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setGuideSectionId('portal-overview');
+                }}
+                className="min-h-10 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-cyan-300 text-xs font-extrabold cursor-pointer"
+              >
+                <BookOpen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>מדריך ופדגוגיה</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                setIsAdminOpen(true);
+              }}
+              className="w-full min-h-10 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4 text-cyan-300 shrink-0" aria-hidden="true" />
+              <span>{authUser ? `מסוף ניהול (${authUser.email || ''})` : 'מסוף ניהול ומורשים'}</span>
+            </button>
+          </div>
+        )}
       </header>
 
       <main id="top" className="flex-1">
@@ -351,6 +426,7 @@ export default function App() {
             onOpenSubmit={() => setIsSubmitOpen(true)}
             onRetryLoad={handleRetryFirestoreLoad}
             onOpenAdmin={() => setIsAdminOpen(true)}
+            onOpenGuide={setGuideSectionId}
           />
         ) : activePage === 'generator' ? (
           <GamePromptGeneratorPage
@@ -361,6 +437,7 @@ export default function App() {
             onBackHome={() => navigateTo('home')}
             onOpenCatalog={() => navigateTo('sites')}
             onOpenSubmit={() => setIsSubmitOpen(true)}
+            onOpenGuide={setGuideSectionId}
           />
         ) : (
           <>
@@ -379,112 +456,61 @@ export default function App() {
                 className="pointer-events-none absolute -bottom-24 start-1/3 w-80 h-80 rounded-full bg-lime-400/15 blur-3xl"
               />
 
-              <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-9 sm:py-12 space-y-8">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-                  <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
-                    <div className="space-y-5">
-                      <h1 className="space-y-3">
-                        <span className="block minecraft-title text-4xl sm:text-5xl xl:text-6xl leading-none tracking-tight">
+              <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-9 space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                  <div className="lg:col-span-7 space-y-4">
+                    <div className="space-y-3">
+                      <h1 className="space-y-2">
+                        <span className="block minecraft-title text-3xl sm:text-5xl xl:text-6xl leading-none tracking-tight">
                           פורטל אתרים ומשחקים
                         </span>
 
-                        <span className="inline-flex flex-wrap items-center gap-3 pt-1">
-                          <span className="text-sm sm:text-base font-bold text-slate-300">
-                            אתרי Google Sites ומשחקי בית הספר
-                          </span>
-                          <span className="inline-block px-4 py-1.5 rounded-lg border-2 border-white bg-amber-400 text-slate-950 font-display text-2xl sm:text-3xl font-black shadow-[5px_5px_0px_#ec4899] -rotate-2">
+                        <span className="inline-flex flex-wrap items-center gap-2.5 pt-1">
+                          <span className="inline-block px-3.5 py-1 rounded-lg border-2 border-white bg-amber-400 text-slate-950 font-display text-xl sm:text-2xl font-black shadow-[4px_4px_0px_#ec4899] -rotate-1">
                             חנה סנש
                           </span>
+                          <span className="text-xs sm:text-sm font-bold text-slate-300">
+                            אתרי Google Sites ומשחקים משיעורי המחשבים · כיתות א׳–ו׳
+                          </span>
+                          <GuideInfoButton
+                            sectionId="portal-overview"
+                            onOpenGuide={setGuideSectionId}
+                            variant="neon"
+                            label="מדריך ורציונל הפורטל למורים ולתלמידים"
+                          />
                         </span>
                       </h1>
 
-                      <p className="text-base sm:text-lg font-bold text-cyan-300 leading-snug max-w-2xl">
-                        המשחקים גם הם אתרים — כל התוצרים נוצרים ב-Google Sites ובמחולל המשחקים במסגרת שיעורי המחשבים, והפורטל מנוהל על-ידי קבוצת המצויינות.
+                      <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-2xl">
+                        המשחקים גם הם אתרים — כל תוצר נבדק על־ידי קבוצת המצויינות לצפייה ציבורית בטוחה.
                       </p>
-
-                      <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
-                        ברוכים הבאים לפורטל אתרים ומשחקים של חנה סנש! בדף הראשי מוצגים האתרים הנבחרים, ובדף האתרים המלא תוכלו לצפות בחדשים ולחפש לפי תוויות.
-                      </p>
-
-                      <div className="flex flex-wrap items-center gap-3 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => navigateTo('sites')}
-                          className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-white bg-cyan-400 text-slate-950 text-sm sm:text-base font-black shadow-[4px_4px_0px_#ec4899] hover:bg-cyan-300 hover:-translate-y-0.5 transition-all cursor-pointer"
-                        >
-                          <LayoutGrid className="w-5 h-5 shrink-0" aria-hidden="true" />
-                          <span>מעבר לדף האתרים המלא ({sites.length})</span>
-                          <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => navigateTo('generator')}
-                          className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-white bg-amber-400 text-slate-950 text-sm sm:text-base font-black shadow-[4px_4px_0px_#06b6d4] hover:bg-amber-300 hover:-translate-y-0.5 transition-all cursor-pointer"
-                        >
-                          <Gamepad2 className="w-5 h-5 shrink-0" aria-hidden="true" />
-                          <span>מחולל משחקים</span>
-                          <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsSubmitOpen(true)}
-                          className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-slate-700 bg-slate-900/90 text-lime-300 text-sm sm:text-base font-extrabold hover:border-lime-400 transition-colors cursor-pointer"
-                        >
-                          <PlusCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                          <span>הגשת אתר חדש</span>
-                        </button>
-                      </div>
                     </div>
 
-                    {/* כרטיסי מידע */}
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-900/90 border-2 border-cyan-400 shadow-[4px_4px_0px_#06b6d4]">
-                          <div className="w-9 h-9 rounded-lg bg-cyan-400 text-slate-950 inline-flex items-center justify-center shrink-0">
-                            <Laptop className="w-4 h-4" aria-hidden="true" />
-                          </div>
-                          <div className="space-y-0.5">
-                            <h2 className="font-display text-sm font-bold text-white">
-                              אתרים ומשחקים ב-Google Sites
-                            </h2>
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              המשחקים גם הם אתרים — תוצרי חקר, מידע, חברה, מועצת תלמידים ומשחקי תחביב שנבנו בשיעורים.
-                            </p>
-                          </div>
-                        </div>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => navigateTo('sites')}
+                        className="min-h-11 inline-flex items-center gap-2 px-4 sm:px-5 py-2 rounded-xl border-2 border-white bg-cyan-400 text-slate-950 text-xs sm:text-sm font-black shadow-[3px_3px_0px_#ec4899] hover:bg-cyan-300 transition-all cursor-pointer"
+                      >
+                        <LayoutGrid className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span>לכל האתרים ({sites.length})</span>
+                        <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      </button>
 
-                        <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-900/90 border-2 border-pink-500 shadow-[4px_4px_0px_#ec4899]">
-                          <div className="w-9 h-9 rounded-lg bg-pink-500 text-white inline-flex items-center justify-center shrink-0">
-                            <Sparkles className="w-4 h-4" aria-hidden="true" />
-                          </div>
-                          <div className="space-y-0.5">
-                            <h2 className="font-display text-sm font-bold text-white">
-                              צפייה ציבורית ובטוחה
-                            </h2>
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              קבוצת המצויינות בודקת שכל קישור פתוח לציבור מחוץ לארגון ושומרת על משובים מכבדים.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-3 pt-1 text-sm text-slate-300 tabular-nums">
-                        <span>
-                          <strong className="font-extrabold text-lime-300">{sites.length}</strong> אתרי תלמידים מאושרים
-                        </span>
-                        <span aria-hidden="true">·</span>
-                        <span>שכבות א׳ עד ו׳</span>
-                        <span aria-hidden="true">·</span>
-                        <span>פתוח לצפייה ציבורית</span>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => navigateTo('generator')}
+                        className="min-h-11 inline-flex items-center gap-2 px-4 sm:px-5 py-2 rounded-xl border-2 border-white bg-amber-400 text-slate-950 text-xs sm:text-sm font-black shadow-[3px_3px_0px_#06b6d4] hover:bg-amber-300 transition-all cursor-pointer"
+                      >
+                        <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span>מחולל משחקים</span>
+                      </button>
                     </div>
                   </div>
 
                   {/* איור קיר רחוב וחלונות אתרים */}
                   <div className="lg:col-span-5">
-                    <div className="relative h-64 sm:h-80 lg:h-full min-h-[260px] rounded-2xl border-2 border-lime-400 shadow-[8px_8px_0px_#ec4899] overflow-hidden bg-slate-900">
+                    <div className="relative h-44 sm:h-64 lg:h-64 rounded-2xl border-2 border-lime-400 shadow-[6px_6px_0px_#ec4899] overflow-hidden bg-slate-900">
                       <img
                         src={heroShowcaseImg}
                         alt="ציור קיר צבעוני של חלונות אתרי תלמידים בנושאי טבע, מדע, ספרים ויצירה"
@@ -569,12 +595,19 @@ export default function App() {
                     <Star className="w-5 h-5 fill-slate-950" aria-hidden="true" />
                   </div>
                   <div>
-                    <h2
-                      id="home-featured-heading"
-                      className="font-display text-2xl sm:text-3xl font-black text-slate-950"
-                    >
-                      אתרים נבחרים
-                    </h2>
+                    <div className="flex items-center gap-2">
+                      <h2
+                        id="home-featured-heading"
+                        className="font-display text-2xl sm:text-3xl font-black text-slate-950"
+                      >
+                        אתרים נבחרים
+                      </h2>
+                      <GuideInfoButton
+                        sectionId="catalog-browse"
+                        onOpenGuide={setGuideSectionId}
+                        label="הסבר על אתרים נבחרים ודף האתרים"
+                      />
+                    </div>
                     <p className="text-xs sm:text-sm font-semibold text-slate-600">
                       אתרי ה-Google Sites המומלצים של תלמידי חנה סנש
                     </p>
@@ -654,25 +687,6 @@ export default function App() {
                 </div>
               )}
 
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl bg-slate-950 text-white border-2 border-slate-950 shadow-[6px_6px_0px_#06b6d4]">
-                <div className="space-y-1 text-center sm:text-start">
-                  <div className="font-display text-lg font-black text-lime-300">
-                    רוצים לראות עוד אתרים לפי תוויות?
-                  </div>
-                  <p className="text-xs sm:text-sm text-slate-300">
-                    בדף האתרים מחכים לכם מדורי חדשים (6), נבחרים (6) וחיפוש ומיון לפי כל 6 התוויות.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => navigateTo('sites')}
-                  className="min-h-11 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 border-white bg-pink-500 text-white text-sm font-extrabold shadow-[3px_3px_0px_#a3e635] hover:bg-pink-400 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <span>מעבר לדף האתרים</span>
-                  <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
-                </button>
-              </div>
             </section>
 
             {/* מדריך פרסום והגשת אתרי Google Sites */}
@@ -683,9 +697,17 @@ export default function App() {
               <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                   <div>
-                    <h2 className="font-display text-2xl sm:text-3xl font-black text-white">
-                      בניתם אתר Google Sites? שתפו אותו עם כולם!
-                    </h2>
+                    <div className="flex items-center gap-2.5">
+                      <h2 className="font-display text-2xl sm:text-3xl font-black text-white">
+                        בניתם אתר Google Sites? שתפו אותו עם כולם!
+                      </h2>
+                      <GuideInfoButton
+                        sectionId="submit-site"
+                        onOpenGuide={setGuideSectionId}
+                        variant="neon"
+                        label="מדריך מפורט להגשת אתר ופרסום ציבורי"
+                      />
+                    </div>
                     <p className="mt-1.5 text-sm sm:text-base text-slate-300">
                       שלושה צעדים פשוטים מהחשבון הבית-ספרי אל הפורטל הפתוח של חנה סנש.
                     </p>
@@ -781,6 +803,13 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setGuideSectionId('portal-overview')}
+              className="hover:text-cyan-300 transition-colors cursor-pointer"
+            >
+              מדריך ורציונל פדגוגי
+            </button>
+            <button
+              type="button"
               onClick={() => setIsAdminOpen(true)}
               className="hover:text-amber-300 transition-colors cursor-pointer"
             >
@@ -796,12 +825,14 @@ export default function App() {
         feedbacks={activeSite ? feedbackBySite[activeSite.id] || [] : []}
         onAddFeedback={handleAddFeedback}
         onClose={() => setActiveSite(null)}
+        onOpenGuide={setGuideSectionId}
       />
 
       {/* מודאל הגשת אתר Google Sites חדש לתלמידים */}
       <SubmitSiteModal
         isOpen={isSubmitOpen}
         onClose={() => setIsSubmitOpen(false)}
+        onOpenGuide={setGuideSectionId}
       />
 
       {/* מסוף ניהול הפורטל (Firestore בלבד) */}
@@ -812,6 +843,14 @@ export default function App() {
         isSigningIn={isSigningIn}
         onSignIn={handleGoogleSignIn}
         onSignOut={handleGoogleSignOut}
+        onOpenGuide={setGuideSectionId}
+      />
+
+      {/* מודאל המדריך האינטראקטיבי והרציונל הפדגוגי עם חיפוש ואינדקס */}
+      <PortalGuideModal
+        isOpen={guideSectionId !== null}
+        targetSectionId={guideSectionId}
+        onClose={() => setGuideSectionId(null)}
       />
     </div>
   );

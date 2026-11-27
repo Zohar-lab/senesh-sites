@@ -17,6 +17,7 @@ import {
   FolderOpen,
   Gamepad2,
   HardDrive,
+  Lightbulb,
   Link2,
   LogIn,
   LogOut,
@@ -57,11 +58,13 @@ import {
   PromptProductionStatus,
   SavedGamePromptItem,
 } from '../types/portal';
+import { GuideSectionId, STEP_STUDENT_HELP } from '../data/portalGuide';
 import {
   GAME_GENERATOR_URL,
   normalizeHttpUrl,
   sanitizeStudentDisplayName,
 } from '../utils/portalUtils';
+import { GuideInfoButton } from './GuideInfoButton';
 
 interface GamePromptGeneratorPageProps {
   user: User | null;
@@ -71,6 +74,7 @@ interface GamePromptGeneratorPageProps {
   onBackHome: () => void;
   onOpenCatalog: () => void;
   onOpenSubmit: () => void;
+  onOpenGuide?: (sectionId: GuideSectionId) => void;
 }
 
 const LOCAL_PROMPTS_KEY = 'senesh_game_prompts_v1';
@@ -485,6 +489,7 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   onBackHome,
   onOpenCatalog,
   onOpenSubmit,
+  onOpenGuide,
 }) => {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -506,7 +511,8 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const [isWizardToolsOpen, setIsWizardToolsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
-  const [showStep1Ideas, setShowStep1Ideas] = useState(false);
+  const [showStepHelp, setShowStepHelp] = useState(true);
+  const [mobilePane, setMobilePane] = useState<'wizard' | 'preview'>('wizard');
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
   const [authDialogError, setAuthDialogError] = useState<string | null>(null);
 
@@ -807,6 +813,12 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
   const generatedPromptText = useMemo(() => buildFinalPromptText(wizard), [wizard]);
   const effectivePromptText = isManualEdited ? manualPromptText : generatedPromptText;
   const activeStepMeta = STEP_META[wizard.currentStep - 1] || STEP_META[0];
+  const activeStepHelp = STEP_STUDENT_HELP[wizard.currentStep] || STEP_STUDENT_HELP[1];
+
+  const applyStepExample = (patch: Partial<GamePromptWizardState>, label: string) => {
+    setWizard((prev) => ({ ...prev, ...patch }));
+    showToast(`מילאנו את הדוגמה "${label}" בשלב ${wizard.currentStep} — אפשר לערוך ולהתאים!`);
+  };
 
   const myPrompts = useMemo(() => {
     return isCloudUser ? cloudPrompts : localPrompts;
@@ -1421,137 +1433,88 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
       )}
 
       {/* ===================================================================== */}
-      {/* סרגל ניווט, הדגשת סטטוס החיבור וכרטיס ספריית הפרומטים המוגדל          */}
+      {/* סרגל עבודה קומפקטי למחולל — ללא כפילויות ולמקסימום שטח עבודה          */}
       {/* ===================================================================== */}
-      <section className="border-b-4 border-slate-950 bg-slate-950/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-8 space-y-5">
-          {/* שורה 1: ניווט מינימלי ללא עומס כפתורים */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={onBackHome}
-              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-cyan-300 hover:text-lime-300 transition-colors cursor-pointer"
-            >
-              <ArrowRight className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span>חזרה לדף הראשי</span>
-            </button>
+      <section className="border-b-2 border-slate-800 bg-slate-950/90">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={onBackHome}
+                className="inline-flex items-center gap-1 text-xs font-bold text-cyan-300 hover:text-lime-300 cursor-pointer shrink-0"
+              >
+                <ArrowRight className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="hidden sm:inline">ראשי</span>
+              </button>
+              <span aria-hidden="true" className="text-slate-700 hidden sm:inline">
+                |
+              </span>
+              <h1 className="font-display text-lg sm:text-2xl font-black text-lime-300 truncate">
+                מחולל המשחקים
+              </h1>
+              <span className="text-[11px] font-bold text-amber-300 hidden sm:inline">
+                א׳–ו׳
+              </span>
+              <GuideInfoButton
+                sectionId="generator-overview"
+                onOpenGuide={onOpenGuide}
+                variant="neon"
+                label="מדריך ורציונל למחולל המשחקים"
+              />
+            </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => openLibraryModal('save-current')}
+                className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-black text-xs cursor-pointer tabular-nums"
+              >
+                <FolderOpen className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>ספרייה ({promptStats.total})</span>
+              </button>
+
               {isAdminOrEditor && (
                 <button
                   type="button"
                   onClick={() => setIsAllPromptsOpen(true)}
-                  className="min-h-10 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 border-2 border-white font-black text-xs sm:text-sm transition-all cursor-pointer tabular-nums"
+                  className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs cursor-pointer tabular-nums"
                 >
-                  <ShieldCheck className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>כל הפרומפטים ({allAdminPrompts.length})</span>
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span className="hidden sm:inline">כל הפרומפטים ({allAdminPrompts.length})</span>
+                  <span className="sm:hidden">ניהול ({allAdminPrompts.length})</span>
                 </button>
               )}
 
               <button
                 type="button"
                 onClick={() => setIsWizardToolsOpen(true)}
-                className="min-h-10 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs sm:text-sm transition-all cursor-pointer"
+                aria-label="אפשרויות אשף (דוגמה ואיפוס)"
+                className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs cursor-pointer"
               >
-                <SlidersHorizontal className="w-4 h-4 shrink-0 text-cyan-300" aria-hidden="true" />
-                <span>אפשרויות אשף (דוגמה ואיפוס)</span>
+                <SlidersHorizontal className="w-3.5 h-3.5 shrink-0 text-cyan-300" aria-hidden="true" />
+                <span className="hidden sm:inline">דוגמה ואיפוס</span>
               </button>
-            </div>
-          </div>
 
-          {/* פס סטטוס חיבור מודגש וברור */}
-          <div
-            role="status"
-            aria-live="polite"
-            className={`rounded-2xl border-2 px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
-              !isFirebaseConfigured
-                ? 'border-rose-400 bg-rose-950/75 text-rose-50'
-                : isSigningIn
-                  ? 'border-cyan-400 bg-cyan-950/75 text-cyan-50'
-                  : isCloudUser
-                    ? 'border-emerald-400 bg-emerald-950/70 text-emerald-50 shadow-[0_0_24px_rgba(16,185,129,0.16)]'
-                    : 'border-amber-400 bg-amber-950/60 text-amber-50 shadow-[0_0_24px_rgba(251,191,36,0.12)]'
-            }`}
-          >
-            <div className="flex items-start sm:items-center gap-3.5">
-              <div
-                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
-                  !isFirebaseConfigured
-                    ? 'bg-rose-500/20 border-rose-400 text-rose-300'
-                    : isSigningIn
-                      ? 'bg-cyan-400/20 border-cyan-400 text-cyan-300'
-                      : isCloudUser
-                        ? 'bg-emerald-400 text-slate-950 border-emerald-200'
-                        : 'bg-amber-400 text-slate-950 border-amber-200'
-                }`}
-              >
-                {!isFirebaseConfigured ? (
-                  <AlertTriangle className="w-6 h-6" aria-hidden="true" />
-                ) : isSigningIn ? (
-                  <RefreshCw className="w-6 h-6 animate-spin" aria-hidden="true" />
-                ) : isCloudUser ? (
-                  <Cloud className="w-6 h-6" aria-hidden="true" />
-                ) : (
-                  <HardDrive className="w-6 h-6" aria-hidden="true" />
-                )}
-              </div>
-
-              <div className="space-y-0.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm sm:text-base font-black">
-                    {!isFirebaseConfigured
-                      ? 'סטטוס חיבור: הענן אינו מוגדר בסביבה זו'
-                      : isSigningIn
-                        ? 'סטטוס חיבור: בתהליך התחברות לחשבון Google...'
-                        : isCloudUser
-                          ? 'סטטוס חיבור: מחובר לענן (Firebase + Google פעילים)'
-                          : 'סטטוס חיבור: לא מחובר · מצב אורח מקומי'}
-                  </span>
-                  {isCloudUser && (
-                    <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-300">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-                      <span>שמירה בענן פעילה</span>
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-xs text-slate-200/90">
-                  {isCloudUser ? (
-                    <>
-                      מחובר כעת:{' '}
-                      <strong className="font-mono text-white" dir="ltr">
-                        {userEmail}
-                      </strong>{' '}
-                      {creatorFirstName ? `(${creatorFirstName})` : ''} · כל פרומפט נשמר לחשבון ונגיש למורים ולמנהלים.
-                    </>
-                  ) : isSigningIn ? (
-                    'חלון ההתחברות של Google נפתח בחזית הדפדפן — בחרו את החשבון הארגוני שלכם.'
-                  ) : (
-                    'הפרומפטים נשמרים רק בדפדפן הנוכחי. התחברו עם Google כדי לשמור בענן ושהמורה יראה את התוצרים.'
-                  )}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
               {isCloudUser ? (
                 <button
                   type="button"
                   onClick={() => void onSignOut()}
-                  className="min-h-10 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-950/70 hover:bg-slate-900 text-emerald-200 border border-emerald-400/60 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+                  title={`מחובר לענן: ${userEmail}`}
+                  className="min-h-9 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-400/60 font-bold text-xs cursor-pointer"
                 >
-                  <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>התנתקות מהחשבון</span>
+                  <Cloud className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span className="hidden md:inline">{creatorFirstName || 'מחובר'}</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   disabled={isSigningIn || !isFirebaseConfigured}
                   onClick={() => void handleTriggerGoogleSignIn()}
-                  className="min-h-11 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-amber-200 text-slate-950 border-2 border-slate-950 font-black text-xs sm:text-sm shadow-[3px_3px_0px_#06b6d4] transition-all cursor-pointer disabled:opacity-60"
+                  className="min-h-9 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-amber-200 text-slate-950 font-black text-xs cursor-pointer disabled:opacity-60"
                 >
-                  <LogIn className="w-4 h-4 shrink-0" aria-hidden="true" />
-                  <span>{isSigningIn ? 'פותח חלון התחברות...' : 'התחבר עם Google לשמירה בענן'}</span>
+                  <LogIn className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{isSigningIn ? 'מתחבר...' : 'שמירה בענן'}</span>
                 </button>
               )}
             </div>
@@ -1560,198 +1523,45 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
           {cloudError && (
             <div
               role="alert"
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-rose-950/90 border-2 border-rose-400 text-rose-100 text-xs sm:text-sm"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-950/90 border border-rose-400 text-rose-100 text-xs"
             >
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0" aria-hidden="true" />
-                <span>{cloudError}</span>
-              </div>
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-300 shrink-0" aria-hidden="true" />
+              <span>{cloudError}</span>
             </div>
           )}
 
-          {/* כרטיס בולט וברור לספריית הפרומטים עם אייקון מוגדל */}
-          <div className="rounded-3xl border-2 border-cyan-400 bg-gradient-to-l from-[#101b22] via-[#132530] to-[#0f172a] p-5 sm:p-6 shadow-[0_0_28px_rgba(34,211,238,0.18)] flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-            <div className="flex items-start sm:items-center gap-4 sm:gap-5">
-              <button
-                type="button"
-                onClick={() => openLibraryModal('save-current')}
-                aria-label="פתיחת ספריית הפרומטים שלי"
-                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 border-2 border-white shadow-[5px_5px_0px_#ec4899] flex items-center justify-center shrink-0 transition-transform hover:-translate-y-0.5 cursor-pointer"
-              >
-                <FolderOpen className="w-9 h-9 sm:w-11 sm:h-11 stroke-[2.2]" aria-hidden="true" />
-              </button>
-
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <h2 className="font-display text-xl sm:text-2xl font-black text-white">
-                    ספריית הפרומטים שלי
-                  </h2>
-                  <span className="text-xs sm:text-sm font-black text-cyan-300 tabular-nums">
-                    ({promptStats.total} פרומפטים שמורים
-                    {promptStats.total > 0
-                      ? ` · ${promptStats.produced} הופקו · ${promptStats.waiting} ממתינים`
-                      : ''}
-                    )
-                  </span>
-                </div>
-                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-                  כאן שומרים את הפרומפטים שבניתם, טוענים פרומפט מוכן מקובץ או הדבקה ישר לתוך 7 השלבים, עורכים, מסמנים סטטוס (<strong>הופק / ממתין</strong>) ומוסיפים קישור לאתר שנוצר.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => openLibraryModal('save-current')}
-                className="min-h-12 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 border-2 border-white font-black text-sm shadow-[3px_3px_0px_#ec4899] transition-all cursor-pointer"
-              >
-                <FolderOpen className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span>פתח את ספריית הפרומטים</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => openLibraryModal('import-prompt')}
-                className="min-h-12 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-pink-500/20 hover:bg-pink-500/35 text-pink-200 border-2 border-pink-400 font-black text-xs sm:text-sm transition-all cursor-pointer"
-              >
-                <Upload className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>טען פרומפט מקובץ / טקסט</span>
-              </button>
-            </div>
-          </div>
-
-          {/* כותרת והסבר על המחולל */}
-          <div className="bg-[#101b22]/95 border-2 border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              <div className="lg:col-span-8 space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="minecraft-title text-3xl sm:text-5xl leading-tight tracking-tight">
-                    מחולל המשחקים
-                  </h1>
-                  <span className="inline-block px-3.5 py-1.5 rounded-xl border-2 border-white bg-amber-400 text-slate-950 font-display text-sm sm:text-base font-black shadow-[4px_4px_0px_#ec4899] -rotate-2">
-                    כיתות א׳–ו׳
-                  </span>
-                </div>
-
-                <p className="text-cyan-300 font-extrabold text-base sm:text-lg leading-snug">
-                  מתכננים משחק משלכם ב-7 שלבים פשוטים, מגדילים את חלון העריכה הידנית מתי שרוצים, וטוענים פרומפטים ישר לשלבים!
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="rounded-2xl bg-[#0b1116] border border-pink-500/70 p-3.5 flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-pink-500 text-white flex items-center justify-center shrink-0">
-                      <Wand2 className="w-5 h-5" aria-hidden="true" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-white">7 שלבים + טעינת פרומפט</h3>
-                      <p className="text-xs text-slate-300 mt-0.5">
-                        אפשר לבנות מאפס או לטעון פרומפט קיים ישר לתוך שדות 7 השלבים.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl bg-[#0b1116] border border-lime-400/70 p-3.5 flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-lime-400 text-slate-950 flex items-center justify-center shrink-0">
-                      <Maximize2 className="w-5 h-5" aria-hidden="true" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-black text-white">חלון עריכה מוגדל</h3>
-                      <p className="text-xs text-slate-300 mt-0.5">
-                        פותחים את עורך הפרומפט בחלון גדול ונוח לעריכה ידנית מדויקת.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* איור שלט ארקייד ניאון */}
-              <div className="lg:col-span-4 flex justify-center">
-                <div className="w-full max-w-xs rounded-3xl border-2 border-pink-500 bg-[#0b1116] overflow-hidden shadow-[0_0_26px_rgba(236,72,153,0.22)]">
-                  <svg
-                    viewBox="0 0 420 215"
-                    className="w-full h-auto block"
-                    role="img"
-                    aria-label="איור שלט ארקייד ואוזניות גיימינג"
-                  >
-                    <defs>
-                      <linearGradient id="genBgWall" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0%" stopColor="#111921" />
-                        <stop offset="100%" stopColor="#090e13" />
-                      </linearGradient>
-                      <linearGradient id="genLimePad" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0%" stopColor="#b5f81d" />
-                        <stop offset="100%" stopColor="#65a30d" />
-                      </linearGradient>
-                    </defs>
-                    <rect width="420" height="215" fill="url(#genBgWall)" />
-                    <circle cx="95" cy="85" r="60" fill="#22d3ee" opacity="0.18" />
-                    <circle cx="310" cy="110" r="70" fill="#ec4899" opacity="0.2" />
-                    <circle cx="215" cy="60" r="50" fill="#a8f01d" opacity="0.16" />
-
-                    <path
-                      d="M72 120 C72 65, 152 65, 152 120"
-                      fill="none"
-                      stroke="#22d3ee"
-                      strokeWidth="10"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M76 120 C76 71, 148 71, 148 120"
-                      fill="none"
-                      stroke="#ec4899"
-                      strokeWidth="4"
-                      strokeLinecap="round"
-                    />
-                    <rect
-                      x="58"
-                      y="108"
-                      width="22"
-                      height="36"
-                      rx="10"
-                      fill="#ec4899"
-                      stroke="#ffffff"
-                      strokeWidth="2"
-                    />
-                    <rect
-                      x="144"
-                      y="108"
-                      width="22"
-                      height="36"
-                      rx="10"
-                      fill="#22d3ee"
-                      stroke="#ffffff"
-                      strokeWidth="2"
-                    />
-
-                    <g transform="translate(185, 62) rotate(-8)">
-                      <rect
-                        x="0"
-                        y="18"
-                        width="165"
-                        height="82"
-                        rx="38"
-                        fill="url(#genLimePad)"
-                        stroke="#0b1116"
-                        strokeWidth="4"
-                      />
-                      <rect x="36" y="43" width="12" height="32" rx="3" fill="#0b1116" />
-                      <rect x="26" y="53" width="32" height="12" rx="3" fill="#0b1116" />
-                      <circle cx="122" cy="48" r="7" fill="#ec4899" stroke="#0b1116" strokeWidth="2" />
-                      <circle cx="138" cy="60" r="7" fill="#22d3ee" stroke="#0b1116" strokeWidth="2" />
-                      <circle cx="106" cy="60" r="7" fill="#fbbf24" stroke="#0b1116" strokeWidth="2" />
-                      <circle cx="122" cy="72" r="7" fill="#ffffff" stroke="#0b1116" strokeWidth="2" />
-                    </g>
-                  </svg>
-                  <div className="grid grid-cols-4 h-2" aria-hidden="true">
-                    <div className="bg-lime-400" />
-                    <div className="bg-pink-500" />
-                    <div className="bg-amber-400" />
-                    <div className="bg-cyan-400" />
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* מתג מובייל נקי בין בניית השלבים לבין תצוגת הסימולטור והפרומפט */}
+          <div
+            role="tablist"
+            aria-label="תצוגת עבודה במובייל"
+            className="grid grid-cols-2 gap-2 lg:hidden pt-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === 'wizard'}
+              onClick={() => setMobilePane('wizard')}
+              className={`min-h-9 py-1.5 px-3 rounded-xl border text-xs font-black transition-colors cursor-pointer ${
+                mobilePane === 'wizard'
+                  ? 'bg-lime-400 text-slate-950 border-lime-400'
+                  : 'bg-slate-900 text-slate-300 border-slate-700'
+              }`}
+            >
+              בניית המשחק (שלב {wizard.currentStep}/7)
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === 'preview'}
+              onClick={() => setMobilePane('preview')}
+              className={`min-h-9 py-1.5 px-3 rounded-xl border text-xs font-black transition-colors cursor-pointer ${
+                mobilePane === 'preview'
+                  ? 'bg-cyan-400 text-slate-950 border-cyan-400'
+                  : 'bg-slate-900 text-slate-300 border-slate-700'
+              }`}
+            >
+              סימולטור ופרומפט
+            </button>
           </div>
         </div>
       </section>
@@ -1759,22 +1569,26 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
       {/* ===================================================================== */}
       {/* אזור העבודה המרכזי — אשף 7 השלבים (ימין) + תצוגה ועריכה (שמאל)        */}
       {/* ===================================================================== */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* עמודה ימנית: אשף 7 השלבים עם עומס כפתורים נקי וממוקד בכל שלב */}
-        <section className="lg:col-span-7 space-y-4">
-          <div className="bg-[#101b22] border-2 border-slate-800 rounded-3xl p-4 shadow-xl">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs sm:text-sm font-black text-cyan-300">
-                התקדמות בבניית המשחק
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* עמודה ימנית: אשף 7 השלבים */}
+        <section
+          className={`lg:col-span-7 space-y-3.5 ${
+            mobilePane === 'wizard' ? 'block' : 'hidden lg:block'
+          }`}
+        >
+          <div className="bg-[#101b22] border border-slate-800 rounded-2xl p-3 shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-black text-cyan-300">
+                בחירת שלב
               </span>
-              <span className="px-3 py-1 rounded-xl bg-lime-400/15 text-lime-300 border border-lime-400/50 text-xs font-black tabular-nums">
-                שלב {wizard.currentStep} מתוך 7
+              <span className="text-xs font-black text-lime-300 tabular-nums">
+                {wizard.currentStep} / 7
               </span>
             </div>
             <div
               role="tablist"
               aria-label="שלבי בניית המשחק"
-              className="grid grid-cols-7 gap-1.5 sm:gap-2"
+              className="grid grid-cols-7 gap-1.5"
             >
               {STEP_META.map((step) => {
                 const isActive = step.num === wizard.currentStep;
@@ -1786,9 +1600,9 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                     role="tab"
                     aria-selected={isActive}
                     onClick={() => updateField('currentStep', step.num)}
-                    className={`py-2 px-1 rounded-xl border font-black text-xs transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                    className={`py-1.5 px-1 rounded-xl border font-black text-xs transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                       isActive
-                        ? 'bg-lime-400 text-slate-950 border-lime-400 scale-[1.03] shadow-[0_0_12px_rgba(163,230,53,0.4)]'
+                        ? 'bg-lime-400 text-slate-950 border-lime-400 shadow-[0_0_10px_rgba(163,230,53,0.35)]'
                         : isDone
                           ? 'bg-cyan-400/15 text-cyan-300 border-cyan-400 hover:bg-cyan-400/25'
                           : 'bg-[#0b1116] text-slate-400 border-slate-800 hover:border-slate-600'
@@ -1804,27 +1618,61 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
             </div>
           </div>
 
-          <div className="bg-[#101b22] border-2 border-lime-400/70 rounded-3xl p-5 sm:p-6 shadow-[0_0_25px_rgba(163,230,53,0.1)]">
-            <div className="border-b border-slate-800 pb-3 mb-4 flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h2 className="text-lg sm:text-xl font-black text-lime-300">
-                  {activeStepMeta.title}
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-300 mt-1">
+          <div className="bg-[#101b22] border-2 border-lime-400/70 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-[0_0_25px_rgba(163,230,53,0.08)]">
+            <div className="border-b border-slate-800 pb-2.5 mb-3.5 flex flex-wrap items-start justify-between gap-2">
+              <div className="flex-1 min-w-[180px]">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base sm:text-xl font-black text-lime-300">
+                    {activeStepMeta.title}
+                  </h2>
+                  <GuideInfoButton
+                    sectionId={activeStepHelp.guideSectionId}
+                    onOpenGuide={onOpenGuide}
+                    variant="neon"
+                    label={`הסבר ורציונל לשלב ${wizard.currentStep}`}
+                  />
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
                   {activeStepMeta.subtitle}
                 </p>
               </div>
-              {wizard.currentStep === 1 && (
-                <button
-                  type="button"
-                  onClick={() => setShowStep1Ideas((prev) => !prev)}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 text-xs font-bold cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{showStep1Ideas ? 'הסתר השראה' : 'צריכים השראה?'}</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowStepHelp((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[11px] font-extrabold cursor-pointer transition-colors shrink-0 ${
+                  showStepHelp
+                    ? 'bg-cyan-400/20 text-cyan-200 border-cyan-400'
+                    : 'bg-slate-900 text-cyan-300 border-slate-700 hover:bg-slate-800'
+                }`}
+              >
+                <Lightbulb className="w-3.5 h-3.5 shrink-0 text-amber-300" aria-hidden="true" />
+                <span>{showStepHelp ? 'הסתר עזרה' : 'עזרה ודוגמאות'}</span>
+              </button>
             </div>
+
+            {showStepHelp && (
+              <div className="mb-3.5 rounded-xl border border-cyan-400/40 bg-[#0b1116]/90 p-3 space-y-2">
+                <p className="text-xs text-slate-200 leading-relaxed">
+                  <strong className="text-cyan-300">{activeStepHelp.friendlyTitle}:</strong>{' '}
+                  {activeStepHelp.whatToWrite} {activeStepHelp.whyItMatters}
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-amber-300">דוגמאות למילוי:</span>
+                  {activeStepHelp.examples.map((ex) => (
+                    <button
+                      key={ex.id}
+                      type="button"
+                      onClick={() => applyStepExample(ex.patch, ex.label)}
+                      title={ex.description}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-cyan-400/20 border border-slate-700 hover:border-cyan-400 text-[11px] font-extrabold text-white transition-colors cursor-pointer"
+                    >
+                      {ex.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {wizard.currentStep === 1 && (
               <div className="space-y-4">
@@ -1860,40 +1708,6 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
                     className="w-full p-3 rounded-2xl bg-[#0b1116] border border-slate-700 focus:border-lime-400 text-white text-sm outline-none"
                   />
                 </div>
-
-                {showStep1Ideas && (
-                  <div className="p-3 rounded-2xl bg-[#0b1116] border border-slate-800 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-slate-300 font-bold">
-                      בחרו רעיון התחלתי:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateField(
-                          'gameSummary',
-                          'משחק פלטפורמה שבו קופצים מעל מכשולים ואוספים כוכבים זוהרים.'
-                        );
-                        setShowStep1Ideas(false);
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-white font-bold cursor-pointer"
-                    >
-                      איסוף כוכבים
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateField(
-                          'gameSummary',
-                          'משחק מרוצים מהיר שבו מתחמקים ממכשולים ומגיעים לקו הסיום לפני שהזמן נגמר.'
-                        );
-                        setShowStep1Ideas(false);
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-white font-bold cursor-pointer"
-                    >
-                      מרוץ נגד הזמן
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 
@@ -2274,15 +2088,27 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
           )}
         </section>
 
-        {/* עמודה שמאלית: סימולטור מסכים חי + תיבת הפרומפט (עם כפתור הגדלת חלון עריכה ופחות עומס) */}
-        <aside className="lg:col-span-5 space-y-5">
+        {/* עמודה שמאלית: סימולטור מסכים חי + תיבת הפרומפט */}
+        <aside
+          className={`lg:col-span-5 space-y-4 ${
+            mobilePane === 'preview' ? 'block' : 'hidden lg:block'
+          }`}
+        >
           {/* כרטיס 1: סימולטור מסכים חי */}
           <div className="bg-[#101b22] border-2 border-cyan-400 rounded-3xl p-4 sm:p-5 shadow-[0_0_22px_rgba(34,211,238,0.14)]">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-sm sm:text-base font-black text-cyan-300 flex items-center gap-2">
-                <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>תצוגה מקדימה של מסכי המשחק</span>
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-black text-cyan-300 flex items-center gap-2">
+                  <Gamepad2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span>תצוגה מקדימה של מסכי המשחק</span>
+                </h3>
+                <GuideInfoButton
+                  sectionId="generator-simulator"
+                  onOpenGuide={onOpenGuide}
+                  variant="neon"
+                  label="הסבר על סימולטור מסכי המשחק"
+                />
+              </div>
 
               <div
                 role="tablist"
@@ -2400,9 +2226,17 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
           <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl p-4 sm:p-5 shadow-[0_0_22px_rgba(163,230,53,0.14)]">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
               <div className="space-y-0.5">
-                <h3 className="text-sm sm:text-base font-black text-lime-300">
-                  הפרומפט המוכן (עריכה ידנית)
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-lime-300">
+                    הפרומפט המוכן (עריכה ידנית)
+                  </h3>
+                  <GuideInfoButton
+                    sectionId="generator-prompt-editor"
+                    onOpenGuide={onOpenGuide}
+                    variant="neon"
+                    label="הסבר על עריכת הפרומפט הידנית"
+                  />
+                </div>
                 <div className="text-[11px] text-slate-400">
                   {isManualEdited ? (
                     <span className="text-amber-300 font-bold">
@@ -2580,13 +2414,21 @@ export const GamePromptGeneratorPage: React.FC<GamePromptGeneratorPageProps> = (
           <div className="bg-[#101b22] border-2 border-lime-400 rounded-3xl max-w-5xl w-full h-[88vh] p-5 sm:p-6 shadow-2xl flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
-                <h3
-                  id="expanded-prompt-editor-title"
-                  className="text-lg sm:text-2xl font-black text-lime-300 flex items-center gap-2"
-                >
-                  <Pencil className="w-5 h-5 shrink-0" aria-hidden="true" />
-                  <span>עורך פרומפט ידני מוגדל</span>
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3
+                    id="expanded-prompt-editor-title"
+                    className="text-lg sm:text-2xl font-black text-lime-300 flex items-center gap-2"
+                  >
+                    <Pencil className="w-5 h-5 shrink-0" aria-hidden="true" />
+                    <span>עורך פרומפט ידני מוגדל</span>
+                  </h3>
+                  <GuideInfoButton
+                    sectionId="generator-prompt-editor"
+                    onOpenGuide={onOpenGuide}
+                    variant="neon"
+                    label="הסבר על עורך הפרומפט המוגדל"
+                  />
+                </div>
                 <p className="text-xs sm:text-sm text-slate-300 mt-0.5 tabular-nums">
                   {isManualEdited ? 'מצב עריכה ידנית פעיל' : 'מסונכרן חי מהאשף'} ·{' '}
                   {promptLineCount} שורות · {effectivePromptText.length} תווים

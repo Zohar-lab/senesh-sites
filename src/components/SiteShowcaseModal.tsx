@@ -17,6 +17,8 @@ import {
   formatStudentFirstNameAndNickname,
   inspectGoogleSiteUrl,
 } from '../utils/portalUtils';
+import { GuideSectionId } from '../data/portalGuide';
+import { GuideInfoButton } from './GuideInfoButton';
 import { SitePreviewMedia } from './SitePreviewMedia';
 
 interface SiteShowcaseModalProps {
@@ -24,6 +26,7 @@ interface SiteShowcaseModalProps {
   feedbacks: SiteFeedback[];
   onAddFeedback: (feedback: Omit<SiteFeedback, 'id' | 'createdAt'>) => Promise<void> | void;
   onClose: () => void;
+  onOpenGuide?: (sectionId: GuideSectionId) => void;
 }
 
 export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
@@ -31,6 +34,7 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
   feedbacks,
   onAddFeedback,
   onClose,
+  onOpenGuide,
 }) => {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -169,18 +173,18 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-5 bg-slate-950/75 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-site-title"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-5xl max-h-[92vh] flex flex-col bg-white border-2 border-slate-950 rounded-2xl shadow-[8px_8px_0px_#06b6d4] overflow-hidden"
+        className="w-full max-w-5xl h-[100dvh] sm:h-auto sm:max-h-[92vh] flex flex-col bg-white sm:border-2 border-slate-950 rounded-none sm:rounded-2xl sm:shadow-[8px_8px_0px_#06b6d4] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* כותרת עליונה ופעולות */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b-2 border-slate-950 bg-slate-50">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-3 border-b-2 border-slate-950 bg-slate-50 shrink-0">
           <div className="min-w-0 flex-1">
             <h2
               id="modal-site-title"
@@ -209,6 +213,11 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <GuideInfoButton
+              sectionId="site-showcase-feedback"
+              onOpenGuide={onOpenGuide}
+              label="הסבר על מסך ההקדמה והמשובים"
+            />
             {linkInfo.isValid && linkInfo.normalizedUrl && (
               <a
                 href={linkInfo.normalizedUrl}
@@ -364,6 +373,11 @@ export const SiteShowcaseModal: React.FC<SiteShowcaseModalProps> = ({
                 >
                   משוב ומחמאות ליוצרים
                 </h3>
+                <GuideInfoButton
+                  sectionId="site-showcase-feedback"
+                  onOpenGuide={onOpenGuide}
+                  label="איך כותבים משוב מכבד ומועיל?"
+                />
               </div>
 
               <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600 tabular-nums">

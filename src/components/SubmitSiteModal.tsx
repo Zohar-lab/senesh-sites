@@ -14,16 +14,19 @@ import {
 import { submitStudentSite } from '../services/firestorePortal';
 import { SiteTag } from '../types/portal';
 import { checkFeedbackModeration } from '../utils/moderation';
+import { GuideSectionId } from '../data/portalGuide';
 import {
   formatStudentFirstNameAndNickname,
   inspectGoogleSiteUrl,
   normalizeHttpUrl,
   SITE_TAGS,
 } from '../utils/portalUtils';
+import { GuideInfoButton } from './GuideInfoButton';
 
 interface SubmitSiteModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenGuide?: (sectionId: GuideSectionId) => void;
 }
 
 interface CreatorDraftRow {
@@ -31,7 +34,11 @@ interface CreatorDraftRow {
   nickname: string;
 }
 
-export const SubmitSiteModal: React.FC<SubmitSiteModalProps> = ({ isOpen, onClose }) => {
+export const SubmitSiteModal: React.FC<SubmitSiteModalProps> = ({
+  isOpen,
+  onClose,
+  onOpenGuide,
+}) => {
   const [title, setTitle] = useState('');
   const [creatorRows, setCreatorRows] = useState<CreatorDraftRow[]>([
     { firstName: '', nickname: '' },
@@ -206,17 +213,17 @@ export const SubmitSiteModal: React.FC<SubmitSiteModalProps> = ({ isOpen, onClos
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-5 bg-slate-950/80 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="submit-site-title"
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-2xl max-h-[92vh] flex flex-col bg-white border-2 border-slate-950 rounded-2xl shadow-[8px_8px_0px_#ec4899] overflow-hidden"
+        className="w-full max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[92vh] flex flex-col bg-white sm:border-2 border-slate-950 rounded-none sm:rounded-2xl sm:shadow-[8px_8px_0px_#ec4899] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 px-5 py-4 bg-slate-950 text-white border-b-2 border-lime-400">
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 bg-slate-950 text-white border-b-2 border-lime-400 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-lime-400 text-slate-950 inline-flex items-center justify-center shrink-0">
               <Globe className="w-5 h-5" aria-hidden="true" />
@@ -231,14 +238,23 @@ export const SubmitSiteModal: React.FC<SubmitSiteModalProps> = ({ isOpen, onClos
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleClose}
-            aria-label="סגירת טופס הגשת אתר"
-            className="min-w-9 min-h-9 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 cursor-pointer"
-          >
-            <X className="w-5 h-5" aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <GuideInfoButton
+              sectionId="submit-site"
+              onOpenGuide={onOpenGuide}
+              variant="neon"
+              showText
+              label="מדריך הגשה"
+            />
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="סגירת טופס הגשת אתר"
+              className="min-w-9 min-h-9 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="w-5 h-5" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-y-auto p-5 sm:p-6">
@@ -323,9 +339,16 @@ export const SubmitSiteModal: React.FC<SubmitSiteModalProps> = ({ isOpen, onClos
                 <div className="sm:col-span-2 space-y-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <span className="block text-xs font-bold text-slate-900">
-                        יוצרי האתר (שם פרטי וכינוי בלבד — ללא שם משפחה) *
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="block text-xs font-bold text-slate-900">
+                          יוצרי האתר (שם פרטי וכינוי בלבד — ללא שם משפחה) *
+                        </span>
+                        <GuideInfoButton
+                          sectionId="privacy-safety"
+                          onOpenGuide={onOpenGuide}
+                          label="למה רושמים רק שם פרטי וכינוי?"
+                        />
+                      </div>
                       <span className="text-[11px] text-slate-600">
                         בשדה השם הפרטי רושמים מילה אחת בלבד. שדה הכינוי הוא אופציונלי.
                       </span>
@@ -436,9 +459,16 @@ export const SubmitSiteModal: React.FC<SubmitSiteModalProps> = ({ isOpen, onClos
                 </div>
 
                 <div className="sm:col-span-2 space-y-1.5">
-                  <label htmlFor="sub-url" className="block text-xs font-bold text-slate-800">
-                    קישור לאתר Google Sites המפורסם *
-                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <label htmlFor="sub-url" className="block text-xs font-bold text-slate-800">
+                      קישור לאתר Google Sites המפורסם *
+                    </label>
+                    <GuideInfoButton
+                      sectionId="submit-site"
+                      onOpenGuide={onOpenGuide}
+                      label="איך מפרסמים נכון ב-Google Sites ומעתיקים את הקישור?"
+                    />
+                  </div>
                   <input
                     id="sub-url"
                     type="text"
